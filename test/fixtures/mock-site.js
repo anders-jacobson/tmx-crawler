@@ -206,6 +206,26 @@ const PAGES = {
       <p>Diese Seite wird über die hreflang-Angabe der Sitemap zugeordnet.</p>`,
   },
 
+  // ---------------------------------------------------------------- German article restructured (review sheet)
+  // German turns the bold "Challenge" paragraph into a heading and adds a closing paragraph.
+  '/int/rewritten/': {
+    title: 'Endoscopes',
+    main: `<h2>Why endoscopes need a different approach</h2>
+      <p>Endoscopes are reprocessed many times during every single day.</p>
+      <p>Challenge 1: tracking every device in the department</p>
+      <p>Busy endoscopy units use many similar endoscopes during the day.</p>
+      <p>This level of traceability is especially important for 7 device types.</p>`,
+  },
+  '/de/rewritten/': {
+    title: 'Endoskope',
+    main: `<h2>Warum Endoskope einen anderen Ansatz brauchen</h2>
+      <p>Endoskope werden an jedem einzelnen Tag viele Male aufbereitet.</p>
+      <h3>Herausforderung 1: Jedes Gerät in der Abteilung nachverfolgen</h3>
+      <p>Ausgelastete Endoskopieabteilungen nutzen am Tag viele ähnliche Endoskope.</p>
+      <p>Diese Rückverfolgbarkeit ist für 7 Gerätetypen besonders wichtig.</p>
+      <p>Mitarbeitende brauchen deshalb klare und eindeutige Anweisungen.</p>`,
+  },
+
   // ---------------------------------------------------------------- same address, but a different CMS page
   '/int/identity-mismatch/': {
     title: 'Identity',
@@ -294,6 +314,7 @@ export async function startMockSite() {
       return send(200, gzipSync(urlset(base, [['/int/localized/']])), 'application/gzip');
     }
     if (path === '/sitemap-broken.xml') return send(500, 'Internal Server Error', 'text/plain');
+    if (path === '/sitemap-review.xml') return send(200, urlset(base, [['/int/rewritten/']]), 'application/xml');
     if (path === '/sitemap-identity.xml') {
       return send(200, urlset(base, [['/int/about/'], ['/int/identity-mismatch/'], ['/int/fallback-version/']]), 'application/xml');
     }

@@ -95,6 +95,56 @@ export function compileSuppressions(entries) {
 }
 
 /**
+ * The content quality gates for one source/target pair, shared by the aligner and the review
+ * suggestions. Returns null when the pair passes, else { reason, detail }.
+ * @param {object} options  same gate options as alignBlocks
+ */
+export function makePairChecker({
+  minWords = 4,
+  maxWords = 80,
+  minLengthRatio = 0.5,
+  maxLengthRatio = 2.5,
+  minWordsByTag = {},
+  lengthRatioMinWords = 4,
+  requireNumberMatch = true,
+  requireProtectedTokens = true,
+  checkTargetLanguage = true,
+  checkCharacters = true,
+  tokenEquivalents = null,
+  suppressPairs = null,
+  sourceLang,
+  targetLang,
+} = {}) {
+  const equivalents = compileTokenEquivalents(tokenEquivalents, targetLang);
+  const isSuppressed = compileSuppressions(suppressPairs);
+  const fail = (reason, detail = null) => ({ reason, detail });
+  return (src, tgt) => {
+    if (isSuppressed(src.text, tgt.text)) return fail('suppressed', 'listed in alignment.suppressPairs');
+    const words = countWords(src.text);
+    const min = minWordsByTag?.[src.tag] ?? minWords;
+    if (words < min || words > maxWords) return fail('word-range', `${words} words`);
+    if (isUntranslated(src.text, tgt.text)) return fail('untranslated');
+    if (checkCharacters) {
+      const garbled = looksGarbled(tgt.text, targetLang) ? targetLang : looksGarbled(src.text, sourceLang) ? sourceLang : null;
+      if (garbled) return fail('unexpected-characters', `mostly letters outside the "${garbled}" alphabet (placeholder or pseudo-localised text?)`);
+    }
+    if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang, src.text)) {
+      return fail('wrong-language', `target reads as "${sourceLang}"`);
+    }
+    const ratio = tgt.text.length / src.text.length;
+    if (words >= lengthRatioMinWords && (ratio < minLengthRatio || ratio > maxLengthRatio)) {
+      return fail('length-ratio', `ratio ${ratio.toFixed(2)}`);
+    }
+    if (requireNumberMatch && !numbersMatch(src.text, tgt.text, sourceLang, targetLang)) {
+      return fail('number-mismatch', `numbers [${numberFingerprint(src.text).join(', ')}] vs [${numberFingerprint(tgt.text).join(', ')}]`);
+    }
+    const missing = requireProtectedTokens ? missingProtectedTokens(src.text, tgt.text, equivalents) : [];
+    if (missing.length) return fail('protected-token-mismatch', `missing in target: ${missing.join(', ')}`);
+    return null;
+  };
+}
+
+/**
  * @param {import('./extract.js').Block[]} sourceBlocks
  * @param {import('./extract.js').Block[]} targetBlocks
  * @param {object} options
@@ -118,32 +168,15 @@ export function compileSuppressions(entries) {
  * @param {string} [options.sourceLang]
  * @param {string} [options.targetLang]
  */
-export function alignBlocks(sourceBlocks, targetBlocks, {
-  mode = 'strict',
-  minWords = 4,
-  maxWords = 80,
-  minLengthRatio = 0.5,
-  maxLengthRatio = 2.5,
-  minWordsByTag = {},
-  lengthRatioMinWords = 4,
-  requireNumberMatch = true,
-  requireProtectedTokens = true,
-  checkTargetLanguage = true,
-  structureGuard = 'prefix',
-  checkCharacters = true,
-  tokenEquivalents = null,
-  suppressPairs = null,
-  sourceLang,
-  targetLang,
-} = {}) {
+export function alignBlocks(sourceBlocks, targetBlocks, options = {}) {
+  const { mode = 'strict', structureGuard = 'prefix' } = options;
   if (!ALIGNMENT_MODES.includes(mode)) {
     throw new Error(`Unknown alignment mode "${mode}". Use one of: ${ALIGNMENT_MODES.join(', ')}`);
   }
   if (!STRUCTURE_GUARDS.includes(structureGuard)) {
     throw new Error(`Unknown structure guard "${structureGuard}". Use one of: ${STRUCTURE_GUARDS.join(', ')}`);
   }
-  const equivalents = compileTokenEquivalents(tokenEquivalents, targetLang);
-  const isSuppressed = compileSuppressions(suppressPairs);
+  const checkPair = makePairChecker(options);
 
   const rejected = {};
   /** Every rejected source block with the reason, so a reviewer can see what was left out and why. */
@@ -155,6 +188,11 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
 
   /** @type {[import('./extract.js').Block, import('./extract.js').Block][]} */
   const candidates = [];
+  /**
+   * Parts of scopes after a layout difference: every source and target block from the first
+   * unsafe position on. Nothing here is paired automatically; the review sheet suggests pairings.
+   */
+  const driftRegions = [];
 
   if (mode === 'sequence') {
     if (sourceBlocks.length !== targetBlocks.length) {
@@ -194,48 +232,30 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       }
       candidates.push([src, tgt]);
     }
+    if (guarded) {
+      const sourceByScope = Map.groupBy(sourceBlocks, scopeKey);
+      const targetByScope = Map.groupBy(targetBlocks, scopeKey);
+      for (const [scope, blocks] of sourceByScope) {
+        const others = targetByScope.get(scope);
+        if (!others) continue;
+        const comparison = comparisons.get(scope)
+          ?? compareLayouts(source.sequences.get(scope), target.sequences.get(scope));
+        if (comparison.same) continue;
+        const keep = structureGuard === 'prefix' ? comparison.safe : 0;
+        driftRegions.push({
+          scope,
+          source: blocks.filter((b) => source.positions.get(b) >= keep),
+          target: others.filter((b) => target.positions.get(b) >= keep),
+        });
+      }
+    }
   }
 
   const pairs = [];
   for (const [src, tgt] of candidates) {
-    if (isSuppressed(src.text, tgt.text)) {
-      reject('suppressed', src, tgt, 'listed in alignment.suppressPairs');
-      continue;
-    }
-    const words = countWords(src.text);
-    const min = minWordsByTag?.[src.tag] ?? minWords;
-    if (words < min || words > maxWords) {
-      reject('word-range', src, tgt, `${words} words`);
-      continue;
-    }
-    if (isUntranslated(src.text, tgt.text)) {
-      reject('untranslated', src, tgt);
-      continue;
-    }
-    if (checkCharacters) {
-      const garbled = looksGarbled(tgt.text, targetLang) ? targetLang : looksGarbled(src.text, sourceLang) ? sourceLang : null;
-      if (garbled) {
-        reject('unexpected-characters', src, tgt, `mostly letters outside the "${garbled}" alphabet (placeholder or pseudo-localised text?)`);
-        continue;
-      }
-    }
-    if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang, src.text)) {
-      reject('wrong-language', src, tgt, `target reads as "${sourceLang}"`);
-      continue;
-    }
-    const ratio = tgt.text.length / src.text.length;
-    if (words >= lengthRatioMinWords && (ratio < minLengthRatio || ratio > maxLengthRatio)) {
-      reject('length-ratio', src, tgt, `ratio ${ratio.toFixed(2)}`);
-      continue;
-    }
-    if (requireNumberMatch && !numbersMatch(src.text, tgt.text, sourceLang, targetLang)) {
-      reject('number-mismatch', src, tgt,
-        `numbers [${numberFingerprint(src.text).join(', ')}] vs [${numberFingerprint(tgt.text).join(', ')}]`);
-      continue;
-    }
-    const missing = requireProtectedTokens ? missingProtectedTokens(src.text, tgt.text, equivalents) : [];
-    if (missing.length) {
-      reject('protected-token-mismatch', src, tgt, `missing in target: ${missing.join(', ')}`);
+    const failure = checkPair(src, tgt);
+    if (failure) {
+      reject(failure.reason, src, tgt, failure.detail);
       continue;
     }
     pairs.push({ source: src.text, target: tgt.text, scope: src.scope, path: src.path, index: src.index });
@@ -244,6 +264,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   return {
     pairs,
     rejectedPairs,
+    driftRegions,
     stats: {
       sourceBlocks: sourceBlocks.length,
       targetBlocks: targetBlocks.length,
@@ -277,6 +298,7 @@ export function textSimilarity(a, b) {
  *     ("similar-variants"), e.g. small edits in repeated legal text;
  *   - otherwise the source is left out entirely ("divergent-dropped"): the translations say
  *     different things, so one of them is page-specific or a mis-pairing.
+ * A pair approved in the review sheet (`reviewed: true`) always wins ("reviewed").
  * Every occurrence is accounted for: kept + duplicates + conflicts = input length.
  * @param {{ source: string, target: string, sourceUrl?: string }[]} units  in deterministic order
  * @param {{ minVariantSimilarity?: number, maxSamples?: number }} [options]
@@ -287,8 +309,10 @@ export function dedupeUnits(units, { minVariantSimilarity = 0.4, maxSamples = 20
     let group = groups.get(unit.source);
     if (!group) groups.set(unit.source, (group = new Map()));
     const variant = group.get(unit.target);
-    if (variant) variant.count += 1;
-    else group.set(unit.target, { unit, count: 1 });
+    if (variant) {
+      variant.count += 1;
+      if (unit.reviewed && !variant.unit.reviewed) variant.unit = unit;
+    } else group.set(unit.target, { unit, count: 1 });
   }
 
   const kept = [];
@@ -306,9 +330,13 @@ export function dedupeUnits(units, { minVariantSimilarity = 0.4, maxSamples = 20
     }
     const top = Math.max(...variants.map((v) => v.count));
     const leaders = variants.filter((v) => v.count === top);
+    const reviewed = variants.find((v) => v.unit.reviewed);
     let chosen = null;
     let resolution = 'divergent-dropped';
-    if (leaders.length === 1) {
+    if (reviewed) {
+      chosen = reviewed;
+      resolution = 'reviewed';
+    } else if (leaders.length === 1) {
       [chosen] = leaders;
       resolution = 'majority';
     } else if (leaders.every((a, i) => leaders.slice(i + 1).every((b) => textSimilarity(a.unit.target, b.unit.target) >= minVariantSimilarity))) {
@@ -332,7 +360,7 @@ export function dedupeUnits(units, { minVariantSimilarity = 0.4, maxSamples = 20
     });
   }
   // Dropped sources first – they are the ones a reviewer may want to look at.
-  const rank = { 'divergent-dropped': 0, majority: 1, 'similar-variants': 2 };
+  const rank = { 'divergent-dropped': 0, majority: 1, 'similar-variants': 2, reviewed: 3 };
   const conflictSamples = samples
     .map((sample, i) => ({ sample, i }))
     .sort((x, y) => rank[x.sample.resolution] - rank[y.sample.resolution] || x.i - y.i)

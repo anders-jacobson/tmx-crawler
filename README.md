@@ -183,6 +183,10 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `alignment.suppressPairs` | `[]` | Known mis-pairings to leave out: `[{ "source", "target", "note" }]`; without `target` the source is dropped with any translation |
 | `alignment.minVariantSimilarity` | `0.4` | Duplicate sources with tied, different translations: keep the first only if the variants are at least this similar (character trigrams), else drop |
 | `output.file` / `reportFile` | `output/<src>-<tgt>.tmx` | Output paths |
+| `review.enabled` | `true` | Write the review sheet and read reviewed sheets (`--no-review` to switch off) |
+| `review.inputDir` | `review` | Folder with reviewed `.xlsx` files (`--review-dir`) |
+| `review.outputFile` | `<TMX path>.review.xlsx` | Where the new review sheet is written (`--review-out`) |
+| `review.threshold` | `0.45` | Minimum similarity (0–1) for a suggested pairing; lower suggests more, with more misses |
 | `output.includeProvenance` | `true` | Add source/target URL `<prop>`s to each `<tu>` |
 | `output.rejectedSamplesPerReason` | `50` | Rejected pairs listed per reason in the report |
 | `extraction.pageIdentity` | `null` | `{ id: {selector, attribute}, contentLanguage: {selector, attribute, pattern}, required }` – page id that must match across languages, and the rendered content language |
@@ -224,6 +228,45 @@ German page has been corrected.
 structurally on many pages, `--align-mode path` recovers more segments (review the result before
 importing). `structure-drift` samples show what the structure guard costs; it can be switched off
 with `alignment.structureGuard: "off"`, at the price of possible paragraph shifts.
+
+## Reviewing the text left out after a layout difference
+
+The structure guard keeps the TM clean by leaving out everything after the point where a page's
+English and German layouts differ – about 200 units on the Getinge site, roughly 1 in 9 of them
+mis-paired by position. Instead of losing the good ones, every run writes a **review sheet**
+(`<TMX name>.review.xlsx`, next to the TMX; on GitHub it lands in the `tmx-results` branch).
+
+**How the suggested pairing works.** For each part of a block after the layout difference, the
+remaining English and German texts are aligned in page order (each English text gets at most one
+German text, and texts can be skipped on either side – German-only paragraphs, merged or split
+paragraphs). Candidates are scored on what survives translation: shared numbers, product names
+and acronyms, words with a common root ("Endoskop"/"endoscope", "Inzision"/"incision"), length
+(German runs ~12 % longer) and element type (a bold English paragraph and a German `<h3>` both
+count as headings). The best-scoring order-preserving alignment is the suggestion; the three next
+best German texts from the same part of the page are listed as alternatives. Texts already in the
+TM from another page are not asked about.
+
+**For the reviewer** (instructions are also on the sheet's second tab):
+
+| Decision | Meaning |
+|---|---|
+| Accept suggestion | the suggested German is the translation |
+| Alternative 1 / 2 / 3 | one of the alternatives is |
+| Use my German | write or paste the correct German in *Your German* |
+| No match | there is no translation of this text on the German page |
+
+Leave *Decision* empty for rows not reviewed yet. Free adaptations are fine – only check that the
+two texts say the same thing. *Match* (High / Medium / Low) is the tool's confidence; *Check* shows
+why an automatic check would have objected (e.g. different numbers) – a hint, not a verdict.
+
+**Feeding the decisions back.** Save the sheet as .xlsx and upload it to the `review/` folder of the
+repository (on GitHub: open `review/` → *Add file → Upload files* → commit). The next run reads
+every `.xlsx` in that folder: approved pairs are added to the TMX (marked
+`<prop type="x-origin">review</prop>` and preferred over any other translation of the same
+English text), and every decided row – approved or "No match" – is left out of new review
+sheets, so each text is reviewed only once. Files are read in name order; a later file wins if the
+same English text was decided twice. Invalid rows (e.g. *Alternative 2* chosen but empty) are
+skipped with a warning in the log and listed in the report under `summary.review`.
 
 ## Importing into DeepL
 

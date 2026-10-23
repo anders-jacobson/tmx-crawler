@@ -46,6 +46,7 @@ describe('end-to-end against a local mirrored site', () => {
     discovery: { maxPages: 50, ...discovery },
     http: { delayMs: 0, concurrency: 3, retries: 2, backoffBaseMs: 5, timeoutMs: 5000, userAgent: USER_AGENT },
     output: { file: join(dir, `${name}.tmx`), reportFile: join(dir, `${name}.report.json`) },
+    review: { inputDir: join(dir, 'no-reviews') },
   });
 
   test('recursive crawl mode', async () => {
@@ -150,6 +151,7 @@ describe('end-to-end against a local mirrored site', () => {
       '--concurrency', '3',
       '--out', out,
       '--report', join(dir, 'cli.report.json'),
+      '--review-dir', join(dir, 'no-reviews'),
       '--log-level', 'warn',
     ]);
     // tmx.config.json uses sitemapUrl "auto", so the CLI run discovers pages via the sitemap
@@ -158,6 +160,7 @@ describe('end-to-end against a local mirrored site', () => {
     assert.match(stdout, /Translation units\s+15 <tu> written/);
     assert.match(stdout, /DeepL size limit\s+OK/);
     assert.match(stdout, /Verification\s+PASSED/);
+    assert.match(stdout, /Review sheet\s+.*cli\.review\.xlsx – \d+ row\(s\) to review/);
   });
 });
 
@@ -183,6 +186,7 @@ describe('page identity check and rejected-pair report', () => {
         },
       },
       output: { file: join(dir, 'identity.tmx'), reportFile: join(dir, 'identity.report.json'), rejectedSamplesPerReason: 2 },
+      review: { enabled: false },
     });
     const summary = await runPipeline(config);
     assert.equal(summary.pages.pagePairsAligned, 1, 'only /int/about/ has a verified counterpart');

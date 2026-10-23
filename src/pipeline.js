@@ -12,7 +12,9 @@ import { HttpClient, RateLimiter, isHtml } from './http-client.js';
 import { RobotsCache } from './robots.js';
 import { loadSitemap } from './sitemap.js';
 import { extractPage } from './extract.js';
-import { alignBlocks, dedupeUnits } from './align.js';
+import { alignBlocks, dedupeUnits, makePairChecker } from './align.js';
+import { confidenceLabel, readReviewFolder, suggestPairs, writeReviewWorkbook } from './review.js';
+import { countWords } from './text.js';
 import { DEEPL_MAX_TMX_BYTES, verifyTmx, writeTmx } from './tmx-writer.js';
 import {
   compilePatterns,
@@ -39,7 +41,22 @@ function langMatches(htmlLang, wanted) {
  */
 export async function runPipeline(config, { logger = silentLogger, signal, fetchImpl } = {}) {
   const startedAt = new Date();
-  const { source, target, discovery, http: httpCfg, extraction, alignment, output } = config;
+  const { source, target, discovery, http: httpCfg, extraction, alignment, output, review } = config;
+  const reviewFile = review.outputFile ?? `${output.file.replace(/\.tmx$/i, '')}.review.xlsx`;
+  const reviewInput = review.enabled ? await readReviewFolder(review.inputDir) : null;
+  if (reviewInput?.files.length) {
+    logger.info(`Review: ${reviewInput.approved.length} approved pair(s) and ${reviewInput.decided.size} decided row(s) from ${reviewInput.files.join(', ')}`);
+  }
+  for (const problem of reviewInput?.invalid ?? []) {
+    logger.warn(`Review file ${problem.file}, row ${problem.row}: ${problem.reason} – row ignored`);
+  }
+  const gateOptions = { ...alignment, sourceLang: source.lang, targetLang: target.lang };
+  const checkPair = makePairChecker(gateOptions);
+  const reviewable = (block) => {
+    const words = countWords(block.text);
+    const min = alignment.minWordsByTag?.[block.tag] ?? alignment.minWords;
+    return words >= min && words <= alignment.maxWords && !reviewInput?.decided.has(block.text);
+  };
 
   const limiter = new RateLimiter(httpCfg.delayMs);
   const http = new HttpClient({
@@ -326,14 +343,30 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
       page.targetUrl = targetUrl;
       page.targetPageId = tgtPage.pageId;
 
-      const { pairs, stats, rejectedPairs } = alignBlocks(srcPage.blocks, tgtPage.blocks, {
-        ...alignment,
-        sourceLang: source.lang,
-        targetLang: target.lang,
-      });
+      const { pairs, stats, rejectedPairs, driftRegions } = alignBlocks(srcPage.blocks, tgtPage.blocks, gateOptions);
       page.stats = stats;
       page.units = pairs.map((pair) => ({ ...pair, sourceUrl: finalSourceUrl, targetUrl: page.targetUrl }));
       page.rejectedPairs = rejectedPairs;
+      if (review.enabled) {
+        page.reviewRows = driftRegions.flatMap((region) => suggestPairs(region, {
+          isCandidate: reviewable,
+          checkPair,
+          threshold: review.threshold,
+          maxAlternatives: 3,
+          sourceLang: source.lang,
+          targetLang: target.lang,
+        })).map((item) => ({
+          index: item.source.index,
+          sourceUrl: finalSourceUrl,
+          targetUrl: page.targetUrl,
+          source: item.source.text,
+          suggestion: item.suggestion?.text ?? null,
+          score: item.score,
+          confidence: confidenceLabel(item.score),
+          alternatives: item.alternatives.map((b) => b.text),
+          check: item.check,
+        }));
+      }
       page.status = 'aligned';
       counters.pagePairsAligned += 1;
       return record(page);
@@ -361,9 +394,46 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   // --- Merge, de-duplicate, write ------------------------------------------------------------
   pages.sort((a, b) => a.sourceUrl.localeCompare(b.sourceUrl));
   const allUnits = pages.flatMap((page) => page.units.slice().sort((a, b) => a.index - b.index));
+  // Pairs approved in a review sheet are human-verified: they go in as they are and win conflicts.
+  for (const pair of reviewInput?.approved ?? []) {
+    allUnits.push({ source: pair.source, target: pair.target, sourceUrl: pair.sourceUrl, targetUrl: pair.targetUrl, reviewed: true, origin: 'review' });
+  }
   const { units, duplicates, conflicts, divergentDropped, conflictSamples } = dedupeUnits(allUnits, {
     minVariantSimilarity: alignment.minVariantSimilarity,
   });
+
+  // Review sheet: English texts after a layout difference that are not in the TM by other means.
+  let reviewSummary = { enabled: review.enabled };
+  if (review.enabled) {
+    const covered = new Set(units.map((u) => u.source));
+    const seenSources = new Set();
+    const rows = [];
+    for (const page of pages) {
+      for (const row of (page.reviewRows ?? []).slice().sort((a, b) => a.index - b.index)) {
+        if (covered.has(row.source) || seenSources.has(row.source)) continue;
+        seenSources.add(row.source);
+        rows.push(row);
+      }
+    }
+    const written = rows.slice(0, review.maxRows);
+    await writeReviewWorkbook(reviewFile, written, {
+      sourceBase: source.baseUrl,
+      targetBase: target.baseUrl,
+      title: `TMX review ${source.lang}-${target.lang}`,
+      now: startedAt,
+    });
+    reviewSummary = {
+      enabled: true,
+      file: reviewFile,
+      rows: written.length,
+      rowsNotWritten: rows.length - written.length,
+      suggestions: written.filter((r) => r.suggestion).length,
+      inputFiles: reviewInput.files,
+      approvedPairsUsed: reviewInput.approved.length,
+      rowsRejectedByReviewer: reviewInput.rejected,
+      invalidRows: reviewInput.invalid,
+    };
+  }
 
   const rejected = {};
   const samplesPerReason = output.rejectedSamplesPerReason ?? 50;
@@ -416,6 +486,7 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
       divergentSourcesDropped: divergentDropped,
       rejected,
     },
+    review: reviewSummary,
     tmx: {
       file: tmx.path,
       translationUnits: tmx.units,
@@ -436,7 +507,11 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
         reason,
         { total: rejected[reason] ?? samples.length, shown: samples.length, samples },
       ])),
-      pages: pages.map(({ units: pageUnits, rejectedPairs: _rejected, ...rest }) => ({ ...rest, units: pageUnits.length })),
+      pages: pages.map(({ units: pageUnits, rejectedPairs: _rejected, reviewRows, ...rest }) => ({
+        ...rest,
+        units: pageUnits.length,
+        reviewRows: reviewRows?.length ?? 0,
+      })),
     };
     await writeFile(output.reportFile, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   }

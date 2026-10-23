@@ -221,6 +221,11 @@ const STOPWORD_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([lang, w
 
 const baseLang = (lang) => String(lang ?? '').toLowerCase().split('-')[0];
 
+/** Function words of a language (empty set for languages without a list). */
+export function stopwordsFor(lang) {
+  return STOPWORD_SETS[baseLang(lang)] ?? new Set();
+}
+
 /**
  * Marks target words that belong to a title-like phrase kept verbatim from the source: a run of
  * consecutive words whose every word pair also occurs in the source, containing at least two

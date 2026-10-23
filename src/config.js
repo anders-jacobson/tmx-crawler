@@ -85,6 +85,13 @@ export const DEFAULT_CONFIG = Object.freeze({
     rejectedSamplesPerReason: 50,
     maxBytes: DEEPL_MAX_TMX_BYTES,
   },
+  review: {
+    enabled: true, // write a review sheet for text after layout differences, read reviewed sheets
+    inputDir: 'review', // reviewed .xlsx files; approved pairs go into the TMX
+    outputFile: null, // default: <output.file without .tmx>.review.xlsx
+    threshold: 0.45, // minimum similarity for a suggested pairing (0–1)
+    maxRows: 5000,
+  },
   logging: { level: 'info', json: false },
 });
 
@@ -130,7 +137,7 @@ function isLangCode(value) {
 export function resolveConfig(...layers) {
   const merged = layers.reduce((acc, layer) => deepMerge(acc, layer ?? {}), DEFAULT_CONFIG);
   const errors = [];
-  const { source, target, discovery, http, extraction, alignment, output } = merged;
+  const { source, target, discovery, http, extraction, alignment, output, review } = merged;
 
   assert(source.baseUrl, 'source.baseUrl is required (e.g. https://www.getinge.com/int/)', errors);
   assert(target.baseUrl, 'target.baseUrl is required (e.g. https://www.getinge.com/de/)', errors);
@@ -236,6 +243,13 @@ export function resolveConfig(...layers) {
 
   assert(TMX_SEGTYPES.includes(output.segtype), `output.segtype must be one of ${TMX_SEGTYPES.join(', ')}`, errors);
   assert(Number.isFinite(output.maxBytes) && output.maxBytes > 0, 'output.maxBytes must be > 0', errors);
+  assert(typeof review.enabled === 'boolean', 'review.enabled must be true or false', errors);
+  assert(typeof review.inputDir === 'string' && review.inputDir.trim(), 'review.inputDir must be a folder path', errors);
+  assert(review.outputFile === null || (typeof review.outputFile === 'string' && /\.xlsx$/i.test(review.outputFile)),
+    'review.outputFile must end in .xlsx', errors);
+  assert(Number.isFinite(review.threshold) && review.threshold > 0 && review.threshold < 1, 'review.threshold must be between 0 and 1', errors);
+  assert(Number.isInteger(review.maxRows) && review.maxRows >= 1, 'review.maxRows must be a positive integer', errors);
+
   const stem = `output/${source.lang}-${target.lang}`;
   output.file ??= `${stem}.tmx`;
   output.reportFile ??= `${stem}.report.json`;

@@ -146,6 +146,9 @@ export async function writeTmx(filePath, units, {
       if (includeProvenance && unit.targetUrl) {
         xml.ele('prop', { type: 'x-target-url' }).txt(xmlText(unit.targetUrl)).up();
       }
+      if (includeProvenance && unit.origin) {
+        xml.ele('prop', { type: 'x-origin' }).txt(xmlText(unit.origin)).up();
+      }
       xml.ele('tuv').att(XML_NS, 'xml:lang', xmlText(sourceLang)).ele('seg').txt(escapeXml(source)).up().up();
       xml.ele('tuv').att(XML_NS, 'xml:lang', xmlText(targetLang)).ele('seg').txt(escapeXml(target)).up().up();
       xml.up();

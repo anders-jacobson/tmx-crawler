@@ -35,6 +35,9 @@ Options:
       --align-mode <mode>   strict | path | sequence          (default: strict)
       --out <file>          TMX output path (default: output/<src>-<tgt>.tmx)
       --report <file>       JSON report path (default: output/<src>-<tgt>.report.json)
+      --review-dir <dir>    Folder with reviewed review sheets (*.xlsx) (default: review)
+      --review-out <file>   Review sheet path (default: <TMX path>.review.xlsx)
+      --no-review           Neither write a review sheet nor read reviewed ones
       --no-robots           Do not consult robots.txt (only for sites you own/operate)
       --log-level <level>   debug | info | warn | error (default: info)
       --log-json            Log as JSON lines
@@ -59,6 +62,9 @@ const OPTIONS = {
   'align-mode': { type: 'string' },
   out: { type: 'string' },
   report: { type: 'string' },
+  'review-dir': { type: 'string' },
+  'review-out': { type: 'string' },
+  'no-review': { type: 'boolean' },
   'no-robots': { type: 'boolean' },
   'log-level': { type: 'string' },
   'log-json': { type: 'boolean' },
@@ -91,6 +97,11 @@ function cliLayer(values) {
     },
     alignment: { mapping: emptyToUndefined(values.mapping), mode: emptyToUndefined(values['align-mode']) },
     output: { file: emptyToUndefined(values.out), reportFile: emptyToUndefined(values.report) },
+    review: {
+      enabled: values['no-review'] ? false : undefined,
+      inputDir: emptyToUndefined(values['review-dir']),
+      outputFile: emptyToUndefined(values['review-out']),
+    },
     logging: { level: emptyToUndefined(values['log-level']), json: values['log-json'] || undefined },
   };
 }
@@ -116,6 +127,8 @@ function summaryRows(s) {
     ['Page pairs', `${fmtInt(p.pagePairsAligned)} aligned, ${fmtInt(p.pagesSkipped)} skipped, ${fmtInt(p.pagesFailed)} failed`],
     ['Translation units', `${fmtInt(s.tmx.translationUnits)} <tu> written (${fmtInt(s.segments.duplicatesRemoved)} duplicates, ${fmtInt(s.segments.conflictsRemoved)} conflicting variants removed, ${fmtInt(s.segments.divergentSourcesDropped ?? 0)} ambiguous sources left out)`],
     ['Output file', `${s.tmx.file} (${fmtBytes(s.tmx.bytes)})`],
+    ...(s.review?.enabled ? [['Review sheet', `${s.review.file} – ${fmtInt(s.review.rows)} row(s) to review`
+      + (s.review.inputFiles.length ? `; ${fmtInt(s.review.approvedPairsUsed)} approved pair(s) added from ${s.review.inputFiles.length} reviewed file(s)` : '')]] : []),
     ['DeepL size limit', `${s.tmx.withinUploadLimit ? 'OK' : 'EXCEEDED'} – ${share}% of ${fmtBytes(s.tmx.maxBytes)}`],
     ['Verification', v.ok ? `PASSED (well-formed XML, TMX 1.4 structure, ${fmtInt(v.units)} <tu>)` : `FAILED – ${v.problems.join('; ')}`],
   ];
