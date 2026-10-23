@@ -53,7 +53,8 @@
       "[id^=\"block-\"]:has(.NewsListBlock-wrapper)",
       ".EventList-wrapper",
       ".ColorTeaser",
-      ".ProductList-text"
+      ".ProductList",
+      ".ProductList-item"
     ],
     "checkHtmlLang": true
   },

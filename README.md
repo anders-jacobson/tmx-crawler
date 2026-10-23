@@ -134,8 +134,9 @@ sits outside `<main>`) and three anchor types: CMS blocks (`block-…`), product
 (`data-item-id`) and solution-list items (`itm…_<id>`). It strips the news list, event list, teaser
 slider navigation and modal dialogs, plus two things measured to cause wrong pairs on real pages:
 related-article teaser cards (`.ColorTeaser`; their text is aligned from the article pages
-themselves) and the short product-card descriptions (`.ProductList-text`), which market teams often
-rewrite instead of translating. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
+themselves) and product listings – the product list component and individual product cards
+(`.ProductList`, `.ProductList-item`), whose content differs per market. Product pages themselves
+are still crawled and aligned. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
 Market-specific pages such as the homepage share only some blocks with `/int/`; anything that is
 not the same block in both languages is ignored.
 
