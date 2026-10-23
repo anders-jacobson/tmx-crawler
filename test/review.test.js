@@ -49,15 +49,18 @@ test('suggestPairs follows a moved paragraph and never suggests untranslated tex
       block('p', 'Monitor the drying status, storage limits and all 12 process steps of every endoscope.'),
       block('p', 'Track the maintenance and repair status of all 40 devices in one place.'),
       block('p', 'Short guide: Flow Family waveforms and loops'),
+      block('p', 'Short guide: Flow-c Anesthesia System'),
     ],
     target: [
       block('p', 'Verfolgen Sie den Wartungs- und Reparaturstatus aller 40 Geräte an einem Ort.'),
       block('p', 'Überwachen Sie Trocknungsstatus, Lagerfristen und alle 12 Prozessschritte jedes Endoskops.'),
       block('p', 'Short guide: Flow Family waveforms and loops'),
+      block('p', 'Short guide: Flow-c Anesthesia System'),
     ],
   }, { sourceLang: 'en', targetLang: 'de', checkPair: (s, t) => (s.text === t.text ? { reason: 'untranslated' } : null) });
   // The German page swapped the two paragraphs: one is found in page order, the other by the
-  // out-of-order pass. The English text that the German page shows untranslated gets no row.
+  // out-of-order pass. English texts the German page shows untranslated get no row – nor is one
+  // offered for the other.
   assert.deepEqual(items.map((i) => [i.source.text.slice(0, 9), i.suggestion?.text.slice(0, 9) ?? null]), [
     ['Monitor t', 'Überwache'],
     ['Track the', 'Verfolgen'],

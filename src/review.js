@@ -133,10 +133,14 @@ export function suggestPairs(region, {
     else j -= 1;
   }
 
-  // A target that is not a translation at all can never be the suggestion.
+  // A target that is not a translation at all can never be the suggestion – including German-page
+  // text that is a verbatim copy of *another* English block ("HLS Set Advanced 7.0" offered for
+  // "HLS Set Advanced 5.0" when the German page shows the English product names).
+  const englishCopies = new Set(src.map((b) => b.text));
   const unusable = (i, j) => {
+    if (englishCopies.has(tgt[j].text)) return true;
     const failure = checkPair?.(src[i], tgt[j]);
-    return tgt[j].text === src[i].text || ['untranslated', 'unexpected-characters', 'wrong-language'].includes(failure?.reason);
+    return ['untranslated', 'unexpected-characters', 'wrong-language'].includes(failure?.reason);
   };
   for (const [i, j] of match) if (unusable(i, j)) match.delete(i);
 
