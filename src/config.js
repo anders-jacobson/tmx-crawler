@@ -39,6 +39,9 @@ export const DEFAULT_CONFIG = Object.freeze({
     // Elements whose identifier is shared between language versions, innermost wins, e.g.
     // [{ "selector": "[id^=\"block-\"]" }, { "selector": "[data-item-id]", "attribute": "data-item-id", "pattern": "(\\d+)$" }]
     anchors: null,
+    // Page-level identity, e.g. { "id": { "selector": "meta[name=\"pageid\"]", "attribute": "content" },
+    //   "contentLanguage": { "selector": "meta[name=\"pagecontent\"]", "attribute": "content", "pattern": "..." } }
+    pageIdentity: null,
     anchorSelector: null, // legacy single-anchor form
     anchorAttribute: 'id',
     blockSelector: DEFAULT_BLOCK_SELECTOR,
@@ -67,6 +70,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     adminLang: 'en',
     dataType: 'plaintext',
     includeProvenance: true,
+    rejectedSamplesPerReason: 50,
     maxBytes: DEEPL_MAX_TMX_BYTES,
   },
   logging: { level: 'info', json: false },
@@ -167,6 +171,29 @@ export function resolveConfig(...layers) {
   assert(Number.isInteger(alignment.minWords) && alignment.minWords >= 1, 'alignment.minWords must be >= 1', errors);
   assert(Number.isInteger(alignment.maxWords) && alignment.maxWords >= alignment.minWords, 'alignment.maxWords must be >= minWords', errors);
   assert(alignment.minLengthRatio > 0 && alignment.maxLengthRatio > alignment.minLengthRatio, 'alignment length ratios are invalid', errors);
+
+  const identity = extraction.pageIdentity;
+  if (identity !== null) {
+    if (typeof identity !== 'object' || Array.isArray(identity)) {
+      errors.push('extraction.pageIdentity must be an object with "id" and/or "contentLanguage"');
+    } else {
+      for (const key of ['id', 'contentLanguage']) {
+        const def = identity[key];
+        if (def !== undefined && (typeof def?.selector !== 'string' || !def.selector.trim())) {
+          errors.push(`extraction.pageIdentity.${key}.selector must be a CSS selector`);
+        }
+      }
+      if (identity.contentLanguage?.pattern) {
+        try {
+          new RegExp(identity.contentLanguage.pattern, 'i');
+        } catch (error) {
+          errors.push(`extraction.pageIdentity.contentLanguage.pattern is invalid: ${error.message}`);
+        }
+      }
+    }
+  }
+  assert(Number.isInteger(output.rejectedSamplesPerReason) && output.rejectedSamplesPerReason >= 0,
+    'output.rejectedSamplesPerReason must be an integer >= 0', errors);
 
   assert(TMX_SEGTYPES.includes(output.segtype), `output.segtype must be one of ${TMX_SEGTYPES.join(', ')}`, errors);
   assert(Number.isFinite(output.maxBytes) && output.maxBytes > 0, 'output.maxBytes must be > 0', errors);

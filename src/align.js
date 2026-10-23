@@ -17,6 +17,7 @@ import {
   countWords,
   isUntranslated,
   missingProtectedTokens,
+  numberFingerprint,
   numbersMatch,
   readsAsSourceLanguage,
 } from './text.js';
@@ -55,8 +56,11 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   }
 
   const rejected = {};
-  const reject = (reason) => {
+  /** Every rejected source block with the reason, so a reviewer can see what was left out and why. */
+  const rejectedPairs = [];
+  const reject = (reason, src, tgt, detail = null) => {
     rejected[reason] = (rejected[reason] ?? 0) + 1;
+    if (src) rejectedPairs.push({ reason, source: src.text, target: tgt?.text ?? null, detail, scope: src.scope ?? null });
   };
 
   /** @type {[import('./extract.js').Block, import('./extract.js').Block][]} */
@@ -69,7 +73,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       sourceBlocks.forEach((src, i) => {
         const tgt = targetBlocks[i];
         if (src.tag === tgt.tag) candidates.push([src, tgt]);
-        else reject('tag-mismatch');
+        else reject('tag-mismatch', src, tgt, `${src.tag} vs ${tgt.tag}`);
       });
     }
   } else {
@@ -79,7 +83,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
     for (const src of sourceBlocks) {
       const tgt = targetsByKey.get(keyOf(src));
       if (tgt) candidates.push([src, tgt]);
-      else reject('no-structural-match');
+      else reject('no-structural-match', src, null, keyOf(src));
     }
   }
 
@@ -87,28 +91,30 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   for (const [src, tgt] of candidates) {
     const words = countWords(src.text);
     if (words < minWords || words > maxWords) {
-      reject('word-range');
+      reject('word-range', src, tgt, `${words} words`);
       continue;
     }
     if (isUntranslated(src.text, tgt.text)) {
-      reject('untranslated');
+      reject('untranslated', src, tgt);
       continue;
     }
     if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang)) {
-      reject('wrong-language');
+      reject('wrong-language', src, tgt, `target reads as "${sourceLang}"`);
       continue;
     }
     const ratio = tgt.text.length / src.text.length;
     if (ratio < minLengthRatio || ratio > maxLengthRatio) {
-      reject('length-ratio');
+      reject('length-ratio', src, tgt, `ratio ${ratio.toFixed(2)}`);
       continue;
     }
     if (requireNumberMatch && !numbersMatch(src.text, tgt.text)) {
-      reject('number-mismatch');
+      reject('number-mismatch', src, tgt,
+        `numbers [${numberFingerprint(src.text).join(', ')}] vs [${numberFingerprint(tgt.text).join(', ')}]`);
       continue;
     }
-    if (requireProtectedTokens && missingProtectedTokens(src.text, tgt.text).length) {
-      reject('protected-token-mismatch');
+    const missing = requireProtectedTokens ? missingProtectedTokens(src.text, tgt.text) : [];
+    if (missing.length) {
+      reject('protected-token-mismatch', src, tgt, `missing in target: ${missing.join(', ')}`);
       continue;
     }
     pairs.push({ source: src.text, target: tgt.text, scope: src.scope, path: src.path, index: src.index });
@@ -116,6 +122,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
 
   return {
     pairs,
+    rejectedPairs,
     stats: {
       sourceBlocks: sourceBlocks.length,
       targetBlocks: targetBlocks.length,

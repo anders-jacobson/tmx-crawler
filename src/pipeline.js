@@ -63,6 +63,7 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   const extractOptions = {
     contentRoot: extraction.contentRoot,
     anchors: extraction.anchors,
+    pageIdentity: extraction.pageIdentity,
     anchorSelector: extraction.anchorSelector,
     anchorAttribute: extraction.anchorAttribute,
     blockSelector: extraction.blockSelector,
@@ -190,7 +191,14 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
     return [...new Set(candidates)].slice(0, 3);
   };
 
-  async function fetchTarget(candidates) {
+  const identity = extraction.pageIdentity;
+
+  /**
+   * Fetches target candidates in order and returns the first one that is a valid counterpart:
+   * HTTP 200 HTML, no redirect elsewhere, declared in the target language, the same page id as
+   * the source page and an actual target-language content version (not a CMS fallback).
+   */
+  async function fetchTarget(candidates, srcPage) {
     const attempts = [];
     for (const url of candidates) {
       if (!(await robots.isAllowed(url, signal))) {
@@ -216,9 +224,30 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
           continue;
         }
       }
-      return { res, requestedUrl: url, attempts };
+      const finalUrl = normalizeUrl(res.url, { dropQuery: discovery.dropQuery }) ?? url;
+      const tgtPage = extractPage(res.text(), { ...extractOptions, baseUrl: finalUrl });
+
+      if (extraction.checkHtmlLang && !langMatches(tgtPage.lang, target.lang)) {
+        attempts.push(`${url}: <html lang="${tgtPage.lang}"> does not match "${target.lang}"`);
+        continue;
+      }
+      if (identity) {
+        if (srcPage.pageId && tgtPage.pageId && srcPage.pageId !== tgtPage.pageId) {
+          attempts.push(`${url}: different page (page id ${tgtPage.pageId}, source has ${srcPage.pageId})`);
+          continue;
+        }
+        if (identity.required && (!srcPage.pageId || !tgtPage.pageId)) {
+          attempts.push(`${url}: page id missing (source ${srcPage.pageId ?? '-'}, target ${tgtPage.pageId ?? '-'})`);
+          continue;
+        }
+        if (tgtPage.contentLanguage && !hreflangMatches(tgtPage.contentLanguage, target.lang)) {
+          attempts.push(`${url}: no ${target.lang} version – the CMS served the "${tgtPage.contentLanguage}" content`);
+          continue;
+        }
+      }
+      return { res, page: tgtPage, url: finalUrl, attempts };
     }
-    return { res: null, attempts };
+    return { res: null, page: null, url: null, attempts };
   }
 
   async function processSourcePage(sourceUrl, depth) {
@@ -273,6 +302,12 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
         counters.pagesSkipped += 1;
         return record(page);
       }
+      page.sourcePageId = srcPage.pageId;
+      if (identity && srcPage.contentLanguage && !hreflangMatches(srcPage.contentLanguage, source.lang)) {
+        page.reason = `source is the "${srcPage.contentLanguage}" content version, not "${source.lang}"`;
+        counters.pagesSkipped += 1;
+        return record(page);
+      }
 
       const candidates = targetCandidates(sourceUrl, finalSourceUrl, srcPage);
       if (!candidates.length) {
@@ -281,29 +316,24 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
         return record(page);
       }
 
-      const { res: tgtRes, requestedUrl, attempts } = await fetchTarget(candidates);
-      if (!tgtRes) {
+      const { page: tgtPage, url: targetUrl, attempts } = await fetchTarget(candidates, srcPage);
+      if (!tgtPage) {
         page.targetUrl = candidates[0];
         page.reason = `no valid target page (${attempts.join('; ')})`;
         counters.pagesSkipped += 1;
         return record(page);
       }
-      page.targetUrl = normalizeUrl(tgtRes.url, { dropQuery: discovery.dropQuery }) ?? requestedUrl;
+      page.targetUrl = targetUrl;
+      page.targetPageId = tgtPage.pageId;
 
-      const tgtPage = extractPage(tgtRes.text(), { ...extractOptions, baseUrl: page.targetUrl });
-      if (extraction.checkHtmlLang && !langMatches(tgtPage.lang, target.lang)) {
-        page.reason = `target <html lang="${tgtPage.lang}"> does not match "${target.lang}"`;
-        counters.pagesSkipped += 1;
-        return record(page);
-      }
-
-      const { pairs, stats } = alignBlocks(srcPage.blocks, tgtPage.blocks, {
+      const { pairs, stats, rejectedPairs } = alignBlocks(srcPage.blocks, tgtPage.blocks, {
         ...alignment,
         sourceLang: source.lang,
         targetLang: target.lang,
       });
       page.stats = stats;
       page.units = pairs.map((pair) => ({ ...pair, sourceUrl: finalSourceUrl, targetUrl: page.targetUrl }));
+      page.rejectedPairs = rejectedPairs;
       page.status = 'aligned';
       counters.pagePairsAligned += 1;
       return record(page);
@@ -334,9 +364,17 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   const { units, duplicates, conflicts, conflictSamples } = dedupeUnits(allUnits);
 
   const rejected = {};
+  const samplesPerReason = output.rejectedSamplesPerReason ?? 50;
+  const rejectedSamples = {};
   for (const page of pages) {
     for (const [reason, count] of Object.entries(page.stats?.rejected ?? {})) {
       rejected[reason] = (rejected[reason] ?? 0) + count;
+    }
+    for (const item of page.rejectedPairs ?? []) {
+      const bucket = (rejectedSamples[item.reason] ??= []);
+      if (bucket.length < samplesPerReason) {
+        bucket.push({ ...item, reason: undefined, sourceUrl: page.sourceUrl, targetUrl: page.targetUrl });
+      }
     }
   }
 
@@ -390,7 +428,12 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
     const report = {
       summary,
       conflicts: conflictSamples,
-      pages: pages.map(({ units: pageUnits, ...rest }) => ({ ...rest, units: pageUnits.length })),
+      // Up to output.rejectedSamplesPerReason examples per rejection reason, for review/tuning.
+      rejected: Object.fromEntries(Object.entries(rejectedSamples).map(([reason, samples]) => [
+        reason,
+        { total: rejected[reason] ?? samples.length, shown: samples.length, samples },
+      ])),
+      pages: pages.map(({ units: pageUnits, rejectedPairs: _rejected, ...rest }) => ({ ...rest, units: pageUnits.length })),
     };
     await writeFile(output.reportFile, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   }

@@ -174,3 +174,29 @@ test('anchor definitions: first match wins, pattern keys are namespaced, invalid
     /extraction\.anchors\[0\]\.pattern is not a valid regular expression/,
   );
 });
+
+test('page identity metadata is read from the head before it is stripped', () => {
+  const identity = {
+    id: { selector: 'meta[name="pageid"]', attribute: 'content' },
+    contentLanguage: { selector: 'meta[name="pagecontent"]', attribute: 'content', pattern: '_([a-z]{2}(?:-[a-z]{2,4})?)_\\d+$' },
+  };
+  const html = (meta) => `<html lang="de"><head>${meta}</head><body><main><p>Text des Absatzes hier.</p></main></body></html>`;
+  const de = extractPage(html('<meta name="pageid" content="10654"><meta name="pagecontent" content="produkte_picco_de_10654">'), { pageIdentity: identity });
+  assert.deepEqual([de.pageId, de.contentLanguage], ['10654', 'de']);
+  const us = extractPage(html('<meta name="pagecontent" content="start_en-US_5">'), { pageIdentity: identity });
+  assert.deepEqual([us.pageId, us.contentLanguage], [null, 'en-US']);
+  const none = extractPage(html(''), { pageIdentity: null });
+  assert.deepEqual([none.pageId, none.contentLanguage], [null, null]);
+});
+
+test('rejected pairs carry the reason and a readable detail', () => {
+  const en = extractPage('<main><p>Read more</p><p>We operate 25 sites in Europe today.</p><p>Servo-u ventilator for adult patients</p></main>').blocks;
+  const de = extractPage('<main><p>Mehr lesen</p><p>Wir betreiben heute 26 Standorte in Europa.</p><p>Beatmungsgerät Servo-n für Neugeborene</p></main>').blocks;
+  const { rejectedPairs } = alignBlocks(en, de, { sourceLang: 'en', targetLang: 'de' });
+  assert.deepEqual(rejectedPairs.map((r) => [r.reason, r.detail]), [
+    ['word-range', '2 words'],
+    ['number-mismatch', 'numbers [25] vs [26]'],
+    ['protected-token-mismatch', 'missing in target: Servo-u'],
+  ]);
+  assert.equal(rejectedPairs[2].target, 'Beatmungsgerät Servo-n für Neugeborene');
+});

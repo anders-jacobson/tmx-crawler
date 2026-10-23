@@ -46,6 +46,18 @@
         "pattern": "(\\d+)$"
       }
     ],
+    "pageIdentity": {
+      "id": {
+        "selector": "meta[name=\"pageid\"]",
+        "attribute": "content"
+      },
+      "contentLanguage": {
+        "selector": "meta[name=\"pagecontent\"]",
+        "attribute": "content",
+        "pattern": "_([a-z]{2}(?:-[a-z]{2,4})?)_\\d+$"
+      },
+      "required": false
+    },
     "extraNoiseSelectors": [
       ".Modal",
       ".TeaserSlider-nav",
@@ -73,7 +85,8 @@
   "output": {
     "file": "output/getinge-en-de.tmx",
     "reportFile": "output/getinge-en-de.report.json",
-    "includeProvenance": true
+    "includeProvenance": true,
+    "rejectedSamplesPerReason": 50
   },
   "logging": {
     "level": "info"

@@ -160,3 +160,48 @@ describe('end-to-end against a local mirrored site', () => {
     assert.match(stdout, /Verification\s+PASSED/);
   });
 });
+
+describe('page identity check and rejected-pair report', () => {
+  let site;
+  let dir;
+  before(async () => {
+    site = await startMockSite();
+    dir = await tempDir('tmx-identity-');
+  });
+  after(() => site.close());
+
+  test('German candidates must share the page id and be a German content version', async () => {
+    const config = resolveConfig({
+      source: { baseUrl: `${site.baseUrl}/int/`, lang: 'en' },
+      target: { baseUrl: `${site.baseUrl}/de/`, lang: 'de' },
+      discovery: { sitemapUrl: `${site.baseUrl}/sitemap-identity.xml` },
+      http: { delayMs: 0, retries: 2, backoffBaseMs: 5, userAgent: USER_AGENT },
+      extraction: {
+        pageIdentity: {
+          id: { selector: 'meta[name="pageid"]', attribute: 'content' },
+          contentLanguage: { selector: 'meta[name="pagecontent"]', attribute: 'content', pattern: '_([a-z]{2}(?:-[a-z]{2,4})?)_\\d+$' },
+        },
+      },
+      output: { file: join(dir, 'identity.tmx'), reportFile: join(dir, 'identity.report.json'), rejectedSamplesPerReason: 2 },
+    });
+    const summary = await runPipeline(config);
+    assert.equal(summary.pages.pagePairsAligned, 1, 'only /int/about/ has a verified counterpart');
+
+    const report = JSON.parse(await readFile(config.output.reportFile, 'utf8'));
+    const byPath = new Map(report.pages.map((p) => [new URL(p.sourceUrl).pathname, p]));
+    assert.equal(byPath.get('/int/about/').sourcePageId, '20');
+    assert.equal(byPath.get('/int/about/').targetPageId, '20');
+    assert.match(byPath.get('/int/identity-mismatch/').reason, /different page \(page id 999, source has 700\)/);
+    assert.match(byPath.get('/int/fallback-version/').reason, /no de version – the CMS served the "en" content/);
+
+    // Rejected pairs are listed per reason, capped, with page URLs and a human-readable detail.
+    const numbers = report.rejected['number-mismatch'];
+    assert.equal(numbers.total, 1);
+    assert.equal(numbers.samples[0].source, 'We operate 25 production sites across three continents.');
+    assert.equal(numbers.samples[0].target, 'Wir betreiben 26 Produktionsstätten auf drei Kontinenten.');
+    assert.equal(numbers.samples[0].detail, 'numbers [25] vs [26]');
+    assert.match(numbers.samples[0].sourceUrl, /\/int\/about\/$/);
+    assert.equal(report.rejected['word-range'].shown, 1);
+    assert.ok(!('rejectedPairs' in report.pages[0]), 'raw per-page lists are not duplicated in the report');
+  });
+});

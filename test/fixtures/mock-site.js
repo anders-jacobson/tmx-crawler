@@ -35,11 +35,11 @@ const NAV_DE = `
     <li><a href="/de/about/">Über uns</a></li>
   </ul></nav>`;
 
-function layout({ lang, title, head = '', nav, main }) {
+function layout({ lang, title, head = '', meta = [], nav, main }) {
   const de = lang.startsWith('de');
   return `<!doctype html>
 <html lang="${lang}">
-<head><meta charset="utf-8"><title>${title}</title>${head}</head>
+<head><meta charset="utf-8"><title>${title}</title>${meta.map(([name, content]) => `<meta name="${name}" content="${content}">`).join('')}${head}</head>
 <body>
   <div id="onetrust-consent-sdk"><p>${de
     ? 'Wir verwenden Cookies, um Ihre Erfahrung auf unserer Website zu verbessern.'
@@ -105,6 +105,7 @@ const PAGES = {
   // ---------------------------------------------------------------- about
   '/int/about/': {
     title: 'About',
+    meta: [['pageid', '20'], ['pagecontent', 'about_en_20']],
     main: `
       <h1>About our company and its history</h1>
       <p>Founded in 1904, the company now employs more than 10,000 people worldwide.</p>
@@ -120,6 +121,7 @@ const PAGES = {
   },
   '/de/about/': {
     title: 'Über uns',
+    meta: [['pageid', '20'], ['pagecontent', 'ueber-uns_de_20']],
     main: `
       <h1>Über unser Unternehmen und seine Geschichte</h1>
       <p>Das 1904 gegründete Unternehmen beschäftigt heute weltweit mehr als 10.000 Mitarbeitende.</p>
@@ -204,6 +206,30 @@ const PAGES = {
       <p>Diese Seite wird über die hreflang-Angabe der Sitemap zugeordnet.</p>`,
   },
 
+  // ---------------------------------------------------------------- same address, but a different CMS page
+  '/int/identity-mismatch/': {
+    title: 'Identity',
+    meta: [['pageid', '700'], ['pagecontent', 'identity-mismatch_en_700']],
+    main: '<p>Our warranty covers every ventilator for three full years.</p>',
+  },
+  '/de/identity-mismatch/': {
+    title: 'Identität',
+    meta: [['pageid', '999'], ['pagecontent', 'karriere_de_999']],
+    main: '<p>Unsere Karriereseite zeigt alle offenen Stellen in Deutschland.</p>',
+  },
+
+  // ---------------------------------------------------------------- CMS serves the English version under /de/
+  '/int/fallback-version/': {
+    title: 'Video',
+    meta: [['pageid', '800'], ['pagecontent', 'video_en_800']],
+    main: '<p>Learn how to prime the circuit before starting therapy.</p>',
+  },
+  '/de/fallback-version/': {
+    title: 'Video',
+    meta: [['pageid', '800'], ['pagecontent', 'video_en_800']],
+    main: '<p>Learn how to prime the circuit step by step before therapy.</p>',
+  },
+
   // ---------------------------------------------------------------- DE page is an untranslated English fallback
   '/int/fallback/': {
     title: 'Fallback',
@@ -268,6 +294,9 @@ export async function startMockSite() {
       return send(200, gzipSync(urlset(base, [['/int/localized/']])), 'application/gzip');
     }
     if (path === '/sitemap-broken.xml') return send(500, 'Internal Server Error', 'text/plain');
+    if (path === '/sitemap-identity.xml') {
+      return send(200, urlset(base, [['/int/about/'], ['/int/identity-mismatch/'], ['/int/fallback-version/']]), 'application/xml');
+    }
 
     // Transient failure: first request for /de/about/ gets 503 + Retry-After.
     if (path === '/de/about/' && hits.get(path) === 1) {
@@ -282,6 +311,7 @@ export async function startMockSite() {
       lang,
       title: page.title,
       head: page.head,
+      meta: page.meta,
       nav: path.startsWith('/de/') ? NAV_DE : NAV_EN,
       main: page.main,
     }));

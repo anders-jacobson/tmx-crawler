@@ -38,8 +38,11 @@ DeepL size limit   OK – 0.0006% of 1.00 GB
 Verification       PASSED (well-formed XML, TMX 1.4 structure, 15 <tu>)
 ```
 
-A JSON report next to the TMX lists every page with its status, skip reason, structural match
-statistics and rejected-segment counts, plus samples of conflicting translations.
+A JSON report next to the TMX lists every page with its status, skip reason, page ids and
+structural match statistics, samples of conflicting translations, and – under `rejected` – up to
+`output.rejectedSamplesPerReason` (default 50) rejected pairs per reason, each with the English and
+German text, a readable detail (e.g. `numbers [25] vs [26]`, `missing in target: Servo-u`) and both
+page URLs. That makes every quality check reviewable and tunable on evidence.
 
 ## Building on GitHub
 
@@ -65,6 +68,11 @@ npm packages and Actions up to date.
    - `hreflang` or `path` to force one strategy
    Both pages must return **200 OK** with HTML. A target that redirects elsewhere (typically to the
    German start page) or declares a different `<html lang>` (an untranslated fallback) is skipped.
+   With `extraction.pageIdentity` the target must also carry the **same page id** as the source
+   (Optimizely renders it as `<meta name="pageid">`, identical in every language) and be an actual
+   target-language content version (`<meta name="pagecontent" content="produkte_picco_de_10654">`);
+   pages where the CMS silently serves the English content under `/de/` are reported as having no
+   German version. A failing candidate is skipped and the next one is tried.
 4. **Extraction** (cheerio) – site chrome is removed first: navigation, language/region selectors,
    cookie/consent banners (generic, OneTrust, Cookiebot, Usercentrics), footers and legal
    disclaimers, plus any site-specific `extraNoiseSelectors`. Blocks containing live widgets
@@ -126,6 +134,8 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `alignment.checkTargetLanguage` | `true` | Reject targets that still read as the source language (en, de, sv, fr, es, it, nl) |
 | `output.file` / `reportFile` | `output/<src>-<tgt>.tmx` | Output paths |
 | `output.includeProvenance` | `true` | Add source/target URL `<prop>`s to each `<tu>` |
+| `output.rejectedSamplesPerReason` | `50` | Rejected pairs listed per reason in the report |
+| `extraction.pageIdentity` | `null` | `{ id: {selector, attribute}, contentLanguage: {selector, attribute, pattern}, required }` – page id that must match across languages, and the rendered content language |
 
 The full default set is in [`src/config.js`](src/config.js).
 

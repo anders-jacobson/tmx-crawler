@@ -136,6 +136,49 @@ export function compileAnchors(anchors, anchorSelector, anchorAttribute = 'id') 
   });
 }
 
+const patternCache = new Map();
+function cachedPattern(source) {
+  if (!patternCache.has(source)) patternCache.set(source, new RegExp(source, 'i'));
+  return patternCache.get(source);
+}
+
+/**
+ * @typedef {object} PageIdentityOptions
+ * @property {{ selector: string, attribute?: string }} [id]   element holding a page id shared by all
+ *           language versions, e.g. { selector: 'meta[name="pageid"]', attribute: 'content' }
+ * @property {{ selector: string, attribute?: string, pattern?: string }} [contentLanguage] element
+ *           revealing which language version the CMS actually rendered; `pattern`'s first group
+ *           is the language code, e.g. "_([a-z]{2}(?:-[a-z]{2,4})?)_\\d+$" for "produkte_picco_de_10654"
+ * @property {boolean} [required=false]  skip pages where the id is missing on either side
+ */
+
+/**
+ * Reads page-level identity metadata. Must run before the <head> is stripped.
+ * @param {import('cheerio').CheerioAPI} $
+ * @param {PageIdentityOptions | null} identity
+ * @returns {{ pageId: string | null, contentLanguage: string | null }}
+ */
+function readPageIdentity($, identity) {
+  const read = (def) => {
+    if (!def?.selector) return null;
+    try {
+      const el = $(def.selector).first();
+      if (!el.length) return null;
+      const value = (def.attribute ? el.attr(def.attribute) : el.text())?.trim();
+      return value || null;
+    } catch {
+      return null;
+    }
+  };
+  const pageId = read(identity?.id);
+  let contentLanguage = read(identity?.contentLanguage);
+  if (contentLanguage && identity.contentLanguage.pattern) {
+    const match = cachedPattern(identity.contentLanguage.pattern).exec(contentLanguage);
+    contentLanguage = match ? (match[1] ?? match[0]) : null;
+  }
+  return { pageId, contentLanguage };
+}
+
 function anchorKeyFor(value, def) {
   if (!value) return null;
   if (!def.pattern) return value;
@@ -165,19 +208,22 @@ function anchorKeyFor(value, def) {
  * @param {AnchorDefinition[]} [options.anchors] elements whose identifier is shared between language
  *                                              versions (CMS blocks, list items); the innermost anchor
  *                                              around a text block becomes its scope
+ * @param {PageIdentityOptions|null} [options.pageIdentity] page-level id / content-language metadata
  * @param {string|null} [options.anchorSelector] legacy single-anchor form of `anchors`
  * @param {string} [options.anchorAttribute='id']
  * @param {string} [options.blockSelector]
  * @param {string[]} [options.noiseSelectors]
  * @param {string[]} [options.dynamicSelectors]
  * @param {(selector: string, error: Error) => void} [options.onInvalidSelector]
- * @returns {{ lang: string, title: string, canonical: string | null,
- *   alternates: { hreflang: string, href: string }[], links: string[], blocks: Block[] }}
+ * @returns {{ lang: string, title: string, canonical: string | null, pageId: string | null,
+ *   contentLanguage: string | null, alternates: { hreflang: string, href: string }[],
+ *   links: string[], blocks: Block[] }}
  */
 export function extractPage(html, {
   baseUrl,
   contentRoot = 'main, [role="main"]',
   anchors = null,
+  pageIdentity = null,
   anchorSelector = null,
   anchorAttribute = 'id',
   blockSelector = DEFAULT_BLOCK_SELECTOR,
@@ -190,6 +236,7 @@ export function extractPage(html, {
   const lang = ($('html').attr('lang') ?? $('html').attr('xml:lang') ?? '').trim();
   const title = normalizeText($('title').first().text());
   const canonical = $('link[rel="canonical"]').attr('href') ?? null;
+  const { pageId, contentLanguage } = readPageIdentity($, pageIdentity);
 
   const alternates = [];
   $('link[rel="alternate"][hreflang][href]').each((_, el) => {
@@ -264,5 +311,5 @@ export function extractPage(html, {
     });
   });
 
-  return { lang, title, canonical, alternates, links, blocks };
+  return { lang, title, canonical, pageId, contentLanguage, alternates, links, blocks };
 }
