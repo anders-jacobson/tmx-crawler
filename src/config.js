@@ -4,7 +4,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { DEFAULT_BLOCK_SELECTOR, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_NOISE_SELECTORS, compileAnchors } from './extract.js';
-import { ALIGNMENT_MODES } from './align.js';
+import { ALIGNMENT_MODES, STRUCTURE_GUARDS } from './align.js';
 import { DEEPL_MAX_TMX_BYTES, TMX_SEGTYPES } from './tmx-writer.js';
 import { normalizeBaseUrl, normalizeUrl } from './url-utils.js';
 
@@ -62,7 +62,9 @@ export const DEFAULT_CONFIG = Object.freeze({
     requireNumberMatch: true,
     requireProtectedTokens: true,
     checkTargetLanguage: true,
-    requireSameStructure: true, // drop a block's pairs when its tag sequence differs between languages
+    // Blocks whose tag sequence differs between languages: keep the part before the difference
+    // ("prefix"), drop the whole block ("scope"), or no check ("off")
+    structureGuard: 'prefix',
     checkCharacters: true, // drop pseudo-localised / garbled text
     // Localised forms of protected tokens per target language, e.g. { "de": { "CSSD": ["AEMP"] } }
     tokenEquivalents: {},
@@ -188,7 +190,8 @@ export function resolveConfig(...layers) {
     errors,
   );
   assert(Number.isInteger(alignment.lengthRatioMinWords) && alignment.lengthRatioMinWords >= 1, 'alignment.lengthRatioMinWords must be an integer >= 1', errors);
-  for (const key of ['requireNumberMatch', 'requireProtectedTokens', 'checkTargetLanguage', 'requireSameStructure', 'checkCharacters']) {
+  assert(STRUCTURE_GUARDS.includes(alignment.structureGuard), `alignment.structureGuard must be one of ${STRUCTURE_GUARDS.join(', ')}`, errors);
+  for (const key of ['requireNumberMatch', 'requireProtectedTokens', 'checkTargetLanguage', 'checkCharacters']) {
     assert(typeof alignment[key] === 'boolean', `alignment.${key} must be true or false`, errors);
   }
   assert(

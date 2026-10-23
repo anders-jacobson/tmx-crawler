@@ -100,7 +100,7 @@
     "allowTargetRedirects": false,
     "requireProtectedTokens": true,
     "checkTargetLanguage": true,
-    "requireSameStructure": true,
+    "structureGuard": "prefix",
     "checkCharacters": true,
     "minVariantSimilarity": 0.4,
     "tokenEquivalents": {

@@ -247,7 +247,7 @@ test('config validates the per-tag word minimums', async () => {
   assert.throws(() => resolveConfig(base, { alignment: { tokenEquivalents: { de: { CSSD: 'AEMP' } } } }), /tokenEquivalents/);
   assert.throws(() => resolveConfig(base, { alignment: { suppressPairs: [{ target: 'x' }] } }), /suppressPairs/);
   assert.throws(() => resolveConfig(base, { alignment: { minVariantSimilarity: 2 } }), /minVariantSimilarity/);
-  assert.throws(() => resolveConfig(base, { alignment: { requireSameStructure: 'yes' } }), /requireSameStructure/);
+  assert.throws(() => resolveConfig(base, { alignment: { structureGuard: 'yes' } }), /structureGuard/);
   const ok = resolveConfig(base, { alignment: { tokenEquivalents: { de: { CSSD: ['AEMP'] } }, suppressPairs: [{ source: 'a', target: 'b' }] } });
-  assert.equal(ok.alignment.requireSameStructure, true);
+  assert.equal(ok.alignment.structureGuard, 'prefix');
 });

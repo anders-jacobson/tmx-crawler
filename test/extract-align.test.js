@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractPage } from '../src/extract.js';
-import { alignBlocks, dedupeUnits } from '../src/align.js';
+import { alignBlocks, compareLayouts, dedupeUnits } from '../src/align.js';
 
 const page = (lang, main, extra = '') => `<!doctype html><html lang="${lang}"><head>
   <title>T</title><link rel="alternate" hreflang="de" href="/de/x/"></head><body>
@@ -74,7 +74,7 @@ test('strict alignment never pairs across a structural shift', () => {
   assert.equal(strict.stats.rejected['no-structural-match'], 2);
 
   // The looser "path" mode pairs by index only and *would* mis-pair the German-only notice …
-  const loose = alignBlocks(en, de, { mode: 'path', requireSameStructure: false });
+  const loose = alignBlocks(en, de, { mode: 'path', structureGuard: 'off' });
   assert.equal(loose.pairs[0]?.target, 'Dieser Hinweis erscheint nur auf der deutschen Seite.');
   // … unless the structure guard is on (the default).
   assert.equal(alignBlocks(en, de, { mode: 'path' }).pairs.length, 0);
@@ -82,7 +82,7 @@ test('strict alignment never pairs across a structural shift', () => {
 
 const anchoredBlocksOf = (lang, main) => extractPage(page(lang, main), { anchors: [{ selector: '[id^="block-"]' }] }).blocks;
 
-test('structure guard: equal per-tag counts in a different order drop the whole scope', () => {
+test('structure guard: equal per-tag counts in a different order drop the drifted part of the block', () => {
   // German turns the bold "Challenge" paragraph into a heading and adds a paragraph further down –
   // the number of <p> stays the same, so strict paths alone would pair every paragraph one off.
   const en = anchoredBlocksOf('en', `<div id="block-1">
@@ -101,15 +101,35 @@ test('structure guard: equal per-tag counts in a different order drop the whole 
     <p>Mitarbeitende benötigen daher klare Anweisungen.</p></div>
     <div id="block-2"><h2>Zusammenfassung des Artikels</h2><p>Vollständige Informationen helfen jeder Abteilung.</p></div>`);
   const options = { mode: 'strict', minWordsByTag: { h2: 1, h3: 1 } };
+  // Default "prefix": the heading before the difference survives; the paragraph right before it
+  // does not (an inserted paragraph there would be invisible), nor does anything after it.
   const guarded = alignBlocks(en, de, options);
-  assert.ok(guarded.stats.rejected['structure-drift'] >= 4, JSON.stringify(guarded.stats.rejected));
-  assert.deepEqual(guarded.pairs.map((p) => p.target), ['Zusammenfassung des Artikels', 'Vollständige Informationen helfen jeder Abteilung.']);
+  assert.equal(guarded.stats.rejected['structure-drift'], 4, JSON.stringify(guarded.stats.rejected));
+  assert.deepEqual(guarded.pairs.map((p) => p.target), [
+    'Warum Endoskope anders sind', 'Zusammenfassung des Artikels', 'Vollständige Informationen helfen jeder Abteilung.',
+  ]);
   const drift = guarded.rejectedPairs.find((r) => r.reason === 'structure-drift');
-  assert.match(drift.detail, /position 3 \(p vs h3/);
+  assert.match(drift.detail, /position 3 \(p vs h3; 5 vs 6 blocks\); 1 leading block\(s\) kept/);
+  assert.equal(drift.tag, 'p');
 
-  const unguarded = alignBlocks(en, de, { ...options, requireSameStructure: false });
+  const scope = alignBlocks(en, de, { ...options, structureGuard: 'scope' });
+  assert.deepEqual(scope.pairs.map((p) => p.target), ['Zusammenfassung des Artikels', 'Vollständige Informationen helfen jeder Abteilung.']);
+  assert.throws(() => alignBlocks(en, de, { ...options, structureGuard: 'maybe' }), /structure guard/);
+
+  const unguarded = alignBlocks(en, de, { ...options, structureGuard: 'off' });
   assert.ok(unguarded.pairs.some((p) => p.source.startsWith('Busy units') && p.target.startsWith('Diese Rückverfolgbarkeit')),
     'without the guard the paragraphs slide by one');
+});
+
+test('compareLayouts finds the divergence and the safe prefix', () => {
+  const t = (s) => s.split(' ');
+  assert.deepEqual(compareLayouts(t('h2 p p li li'), t('h2 p p li li')), { same: true, diverge: 5, safe: 5 });
+  // Rewritten section end (OR lighting article): heading kept, paragraph before the divergence dropped.
+  assert.deepEqual(compareLayouts(t('p h2 p p li li p p'), t('p h2 p li li p p p')), { same: false, diverge: 3, safe: 2 });
+  // German adds a closing paragraph: everything before it is safe.
+  assert.deepEqual(compareLayouts(t('h2 p li li'), t('h2 p li li p')), { same: false, diverge: 4, safe: 4 });
+  assert.deepEqual(compareLayouts(t('h2 p'), t('h2')), { same: false, diverge: 1, safe: 1 });
+  assert.deepEqual(compareLayouts(t('p p p'), t('p p p p')), { same: false, diverge: 3, safe: 0 });
 });
 
 test('placeholder text, suppression list and acronym equivalents', () => {

@@ -9,10 +9,13 @@
  *   path      same scope + identical tag path (index only) – more recall, less safe
  *   sequence  n-th block ↔ n-th block; only used when both pages have the same block count
  *
- * Structure guard (strict/path modes, on by default): a pair is only kept when its scope has the
- * same sequence of block tags on both pages. When the translated page reorders, adds or drops
- * paragraphs inside a block, equal per-tag counts can still occur by coincidence and the
- * positional pairing would slide by one – so the whole scope is left out ("structure-drift").
+ * Structure guard (strict/path modes): when a scope's sequence of block tags differs between the
+ * two pages, the translated page has reordered, added or dropped blocks, and equal per-tag counts
+ * can still occur by coincidence so that positional pairing slides by one ("structure-drift").
+ *   prefix  (default) keep the blocks before the first point where the sequences diverge, minus
+ *           the run of same-tag blocks right before it (an insertion there is invisible); drop the rest
+ *   scope   drop every pair of the scope – safest, but loses all text before the divergence too
+ *   off     no guard
  *
  * Quality gates (in this order): suppression list, word range, untranslated, unexpected
  * characters, wrong language, length ratio, numbers, protected tokens.
@@ -31,24 +34,46 @@ import {
 } from './text.js';
 
 export const ALIGNMENT_MODES = Object.freeze(['strict', 'path', 'sequence']);
+export const STRUCTURE_GUARDS = Object.freeze(['prefix', 'scope', 'off']);
 
 const scopeKey = (block) => block.scope ?? '@0';
 
-/** Tag sequence of every scope, in document order: Map(scope → ['h2', 'p', 'li', …]). */
-function scopeSequences(blocks) {
+/**
+ * Tag sequence of every scope in document order, and each block's position within its scope.
+ * @returns {{ sequences: Map<string, string[]>, positions: Map<object, number> }}
+ */
+function scopeLayout(blocks) {
   const sequences = new Map();
+  const positions = new Map();
   for (const block of blocks) {
     const key = scopeKey(block);
     if (!sequences.has(key)) sequences.set(key, []);
-    sequences.get(key).push(block.tag);
+    const sequence = sequences.get(key);
+    positions.set(block, sequence.length);
+    sequence.push(block.tag);
   }
-  return sequences;
+  return { sequences, positions };
 }
 
-function describeDrift(a = [], b = []) {
-  let i = 0;
-  while (i < a.length && i < b.length && a[i] === b[i]) i += 1;
-  return `block sequence differs at position ${i + 1} (${a[i] ?? 'end'} vs ${b[i] ?? 'end'}; ${a.length} vs ${b.length} blocks)`;
+/**
+ * Compares two tag sequences. `safe` is the number of leading blocks that can still be paired:
+ * everything before the first difference, minus the run of blocks right before it that share a
+ * tag with either side of the difference – a paragraph inserted inside such a run shows up only
+ * where the run ends, but already shifts the run itself.
+ * @returns {{ same: boolean, diverge: number, safe: number }}
+ */
+export function compareLayouts(a = [], b = []) {
+  let diverge = 0;
+  while (diverge < a.length && diverge < b.length && a[diverge] === b[diverge]) diverge += 1;
+  if (diverge === a.length && diverge === b.length) return { same: true, diverge, safe: diverge };
+  let safe = diverge;
+  while (safe > 0 && (a[safe - 1] === a[diverge] || a[safe - 1] === b[diverge])) safe -= 1;
+  return { same: false, diverge, safe };
+}
+
+function describeDrift(a = [], b = [], { diverge, safe }) {
+  return `block sequence differs at position ${diverge + 1} (${a[diverge] ?? 'end'} vs ${b[diverge] ?? 'end'}; `
+    + `${a.length} vs ${b.length} blocks); ${safe} leading block(s) kept`;
 }
 
 /**
@@ -84,7 +109,7 @@ export function compileSuppressions(entries) {
  * @param {boolean} [options.requireNumberMatch=true]
  * @param {boolean} [options.requireProtectedTokens=true]  brand/model tokens must carry over
  * @param {boolean} [options.checkTargetLanguage=true]     reject targets that read as the source language
- * @param {boolean} [options.requireSameStructure=true]  structure guard, see above
+ * @param {'prefix'|'scope'|'off'} [options.structureGuard='prefix']  see above
  * @param {boolean} [options.checkCharacters=true]       reject text dominated by letters foreign to its
  *                                                       language (pseudo-localised placeholder text)
  * @param {Record<string, Record<string, string[]>>} [options.tokenEquivalents]
@@ -104,7 +129,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   requireNumberMatch = true,
   requireProtectedTokens = true,
   checkTargetLanguage = true,
-  requireSameStructure = true,
+  structureGuard = 'prefix',
   checkCharacters = true,
   tokenEquivalents = null,
   suppressPairs = null,
@@ -114,6 +139,9 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   if (!ALIGNMENT_MODES.includes(mode)) {
     throw new Error(`Unknown alignment mode "${mode}". Use one of: ${ALIGNMENT_MODES.join(', ')}`);
   }
+  if (!STRUCTURE_GUARDS.includes(structureGuard)) {
+    throw new Error(`Unknown structure guard "${structureGuard}". Use one of: ${STRUCTURE_GUARDS.join(', ')}`);
+  }
   const equivalents = compileTokenEquivalents(tokenEquivalents, targetLang);
   const isSuppressed = compileSuppressions(suppressPairs);
 
@@ -122,7 +150,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   const rejectedPairs = [];
   const reject = (reason, src, tgt, detail = null) => {
     rejected[reason] = (rejected[reason] ?? 0) + 1;
-    if (src) rejectedPairs.push({ reason, source: src.text, target: tgt?.text ?? null, detail, scope: src.scope ?? null });
+    if (src) rejectedPairs.push({ reason, tag: src.tag, source: src.text, target: tgt?.text ?? null, detail, scope: src.scope ?? null });
   };
 
   /** @type {[import('./extract.js').Block, import('./extract.js').Block][]} */
@@ -142,19 +170,25 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
     const field = mode === 'strict' ? 'strictPath' : 'path';
     const keyOf = (block) => `${block.scope ?? '@0'}|${block[field]}`;
     const targetsByKey = new Map(targetBlocks.map((b) => [keyOf(b), b]));
-    const sourceSequences = requireSameStructure ? scopeSequences(sourceBlocks) : null;
-    const targetSequences = requireSameStructure ? scopeSequences(targetBlocks) : null;
+    const guarded = structureGuard !== 'off';
+    const source = guarded ? scopeLayout(sourceBlocks) : null;
+    const target = guarded ? scopeLayout(targetBlocks) : null;
+    const comparisons = new Map();
     for (const src of sourceBlocks) {
       const tgt = targetsByKey.get(keyOf(src));
       if (!tgt) {
         reject('no-structural-match', src, null, keyOf(src));
         continue;
       }
-      if (sourceSequences) {
-        const a = sourceSequences.get(scopeKey(src));
-        const b = targetSequences.get(scopeKey(src));
-        if (a.join(' ') !== (b ?? []).join(' ')) {
-          reject('structure-drift', src, tgt, describeDrift(a, b));
+      if (guarded) {
+        const scope = scopeKey(src);
+        const a = source.sequences.get(scope);
+        const b = target.sequences.get(scope) ?? [];
+        if (!comparisons.has(scope)) comparisons.set(scope, compareLayouts(a, b));
+        const comparison = comparisons.get(scope);
+        const keep = structureGuard === 'prefix' ? comparison.safe : 0;
+        if (!comparison.same && (source.positions.get(src) >= keep || target.positions.get(tgt) >= keep)) {
+          reject('structure-drift', src, tgt, describeDrift(a, b, structureGuard === 'prefix' ? comparison : { ...comparison, safe: 0 }));
           continue;
         }
       }

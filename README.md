@@ -93,12 +93,15 @@ npm packages and Actions up to date.
    - `strict` (default): same tag path *and* same number of same-tag siblings at every level within
      the block, so an extra paragraph can never shift later segments into wrong pairs
    - `path`: same tag path only (more recall, less safe) · `sequence`: n-th ↔ n-th, equal counts only
-   - **structure guard** (`requireSameStructure`, on by default): a block's pairs are only kept when
-     the block has the *same sequence* of headings, paragraphs and list items in both languages.
-     Rewritten German articles showed why: English used bold "Challenge 1:" paragraphs where German
-     used real `<h3>` headings and added a paragraph further down – the paragraph counts came out
-     equal by coincidence and strict paths alone paired every paragraph one off. Such blocks are
-     now left out as `structure-drift`.
+   - **structure guard** (`structureGuard`): compares each block's *sequence* of headings,
+     paragraphs and list items in both languages. Rewritten German articles showed why: English
+     used bold "Challenge 1:" paragraphs where German used real `<h3>` headings and added a
+     paragraph further down – the paragraph counts came out equal by coincidence and strict paths
+     alone paired every paragraph one off. With `prefix` (default) the part of the block before
+     the first difference is kept, minus the run of blocks right before it that carry one of the
+     two differing tags (a paragraph inserted inside that run would only become visible where the
+     run ends); everything from there on is left out as `structure-drift`. `scope` drops the whole
+     block instead, `off` disables the guard.
 6. **Filtering** – normalised text (NFC, whitespace collapsed, soft hyphens/zero-width removed);
    source segment must be **4–80 words**. A pair is rejected when it is on the reviewer's
    `suppressPairs` list, when the target is untranslated, consists mostly of letters foreign to the
@@ -169,7 +172,7 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `alignment.requireNumberMatch` | `true` | Reject pairs whose numbers differ |
 | `alignment.requireProtectedTokens` | `true` | Reject pairs where brand/model names or `(ACRONYMS)` are missing in the target |
 | `alignment.checkTargetLanguage` | `true` | Reject targets that still read as the source language (en, de, sv, fr, es, it, nl) |
-| `alignment.requireSameStructure` | `true` | Structure guard: keep a block's pairs only if its sequence of headings/paragraphs/list items is identical in both languages |
+| `alignment.structureGuard` | `prefix` | Blocks whose sequence of headings/paragraphs/list items differs between languages: keep the part before the difference (`prefix`), drop the whole block (`scope`), or `off` |
 | `alignment.checkCharacters` | `true` | Reject text made up mostly of letters foreign to its language (pseudo-localised placeholders) |
 | `alignment.tokenEquivalents` | `{}` | Localised forms of protected tokens per target language, e.g. `{ "de": { "CSSD": ["AEMP"] } }` (whole-word match) |
 | `alignment.suppressPairs` | `[]` | Known mis-pairings to leave out: `[{ "source", "target", "note" }]`; without `target` the source is dropped with any translation |
@@ -215,7 +218,9 @@ German page has been corrected.
 `no-structural-match` and `structure-drift` counts. If the two language variants differ
 structurally on many pages, `--align-mode path` recovers more segments (review the result before
 importing). `structure-drift` samples show what the structure guard costs; it can be switched off
-with `alignment.requireSameStructure: false`, at the price of possible paragraph shifts.
+with `alignment.structureGuard: "off"`, at the price of possible paragraph shifts. Measured on the
+full Getinge run, `scope` removed about 500 units of which 98 % were correct; `prefix` keeps the
+text before the difference.
 
 ## Importing into DeepL
 
