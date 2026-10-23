@@ -62,6 +62,8 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   const invalidSelectors = new Set();
   const extractOptions = {
     contentRoot: extraction.contentRoot,
+    anchorSelector: extraction.anchorSelector,
+    anchorAttribute: extraction.anchorAttribute,
     blockSelector: extraction.blockSelector,
     noiseSelectors: extraction.noiseSelectors,
     dynamicSelectors: extraction.dynamicSelectors,
@@ -133,6 +135,12 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
     }
   }
   if (discoveryMode === 'crawl') seeds = [source.baseUrl];
+  if (discoveryMode === 'sitemap' && discovery.order === 'shallow-first') {
+    // Sitemaps often list thousands of near-identical leaf pages first (videos, downloads).
+    // Visiting section and landing pages first makes small --max-pages samples representative.
+    const depth = (url) => new URL(url).pathname.split('/').filter(Boolean).length;
+    seeds.sort((a, b) => depth(a) - depth(b) || a.localeCompare(b));
+  }
   const followLinks = discovery.followLinks ?? discoveryMode === 'crawl';
 
   // --- Crawl -------------------------------------------------------------------------------
@@ -288,7 +296,11 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
         return record(page);
       }
 
-      const { pairs, stats } = alignBlocks(srcPage.blocks, tgtPage.blocks, alignment);
+      const { pairs, stats } = alignBlocks(srcPage.blocks, tgtPage.blocks, {
+        ...alignment,
+        sourceLang: source.lang,
+        targetLang: target.lang,
+      });
       page.stats = stats;
       page.units = pairs.map((pair) => ({ ...pair, sourceUrl: finalSourceUrl, targetUrl: page.targetUrl }));
       page.status = 'aligned';

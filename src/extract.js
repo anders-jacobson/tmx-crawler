@@ -1,20 +1,30 @@
 /**
  * DOM parsing and segment extraction with cheerio.
  *
- * Each extracted block carries two structural keys used for alignment:
- *   path        tag[i]/tag[i]/…        index among same-tag siblings at every level
+ * Each extracted block carries a scope and two structural paths used for alignment:
+ *   scope       the CMS block it belongs to (value of the anchor attribute, e.g. "block-3945")
+ *               when an anchorSelector is configured, otherwise "@<root index>"
+ *   path        tag[i]/tag[i]/…        index among same-tag siblings, relative to the scope
  *   strictPath  tag[i:n]/tag[i:n]/…    additionally the number of same-tag siblings, so an
  *                                       extra paragraph/section on one page can never shift
  *                                       later blocks into a wrong pairing
+ *
+ * Anchors make alignment robust against pages whose blocks are re-ordered, or where one
+ * language has extra blocks: CMSs such as Optimizely give a block the same id in every
+ * language, so pairing happens block-to-block instead of by global page position.
  */
 
 import * as cheerio from 'cheerio';
 import { normalizeText } from './text.js';
 
-/** Elements that never contain translatable page copy. Always removed. */
+/**
+ * Elements that never contain translatable page copy. Always removed.
+ * Note: the HTML `hidden` attribute is deliberately NOT in this list - CMSs render collapsed
+ * accordion and tab panels with `hidden`, and their text is genuine page content.
+ */
 const ALWAYS_REMOVE = [
   'script', 'style', 'noscript', 'template', 'svg', 'iframe', 'object', 'embed', 'canvas',
-  'head', '[hidden]', '[aria-hidden="true"]',
+  'head', '[aria-hidden="true"]',
 ];
 
 /**
@@ -88,12 +98,18 @@ function structuralPaths(node, root) {
   return { path: loose.reverse().join('/'), strictPath: strict.reverse().join('/') };
 }
 
+function isAncestor(ancestor, node) {
+  for (let n = node.parent; n; n = n.parent) if (n === ancestor) return true;
+  return false;
+}
+
 /**
  * @typedef {object} Block
  * @property {number} index      order of appearance on the page
  * @property {string} tag
- * @property {string} path
- * @property {string} strictPath
+ * @property {string} scope      anchor key ("block-3945") or root key ("@0")
+ * @property {string} path       relative to the scope element
+ * @property {string} strictPath relative to the scope element
  * @property {string} text       normalised text
  */
 
@@ -101,7 +117,11 @@ function structuralPaths(node, root) {
  * @param {string} html
  * @param {object} [options]
  * @param {string} [options.baseUrl]            used to resolve relative links / alternates
- * @param {string} [options.contentRoot]        CSS selector of the main content container; falls back to <body>
+ * @param {string} [options.contentRoot]        CSS selector of the content container(s). Every outermost
+ *                                              match is used, in document order (e.g. a hero banner that
+ *                                              sits outside <main> plus <main>); falls back to <body>
+ * @param {string|null} [options.anchorSelector] CSS selector of CMS content blocks used as alignment anchors
+ * @param {string} [options.anchorAttribute='id'] attribute whose value identifies an anchor across languages
  * @param {string} [options.blockSelector]
  * @param {string[]} [options.noiseSelectors]
  * @param {string[]} [options.dynamicSelectors]
@@ -112,6 +132,8 @@ function structuralPaths(node, root) {
 export function extractPage(html, {
   baseUrl,
   contentRoot = 'main, [role="main"]',
+  anchorSelector = null,
+  anchorAttribute = 'id',
   blockSelector = DEFAULT_BLOCK_SELECTOR,
   noiseSelectors = DEFAULT_NOISE_SELECTORS,
   dynamicSelectors = DEFAULT_DYNAMIC_SELECTORS,
@@ -150,21 +172,48 @@ export function extractPage(html, {
   $('br').replaceWith(' ');
   $(BLOCK_LEVEL).after(' ');
 
-  const rootCandidates = contentRoot ? safeSelect($, null, contentRoot, onInvalidSelector) : $([]);
-  const root = rootCandidates.length ? rootCandidates.first() : $('body');
-  const rootNode = root.get(0);
+  // --- Content roots: every outermost match, in document order ------------------------------
+  const candidates = contentRoot ? safeSelect($, null, contentRoot, onInvalidSelector).toArray() : [];
+  let roots = candidates.filter((node) => !candidates.some((other) => other !== node && isAncestor(other, node)));
+  if (!roots.length) roots = $('body').toArray();
+
+  // --- Anchors: CMS block ids shared between language versions ------------------------------
+  const anchorKeys = new Map();
+  if (anchorSelector) {
+    const occurrences = new Map();
+    safeSelect($, null, anchorSelector, onInvalidSelector).each((_, el) => {
+      const value = $(el).attr(anchorAttribute);
+      if (!value) return;
+      const n = (occurrences.get(value) ?? 0) + 1;
+      occurrences.set(value, n);
+      anchorKeys.set(el, n === 1 ? value : `${value}#${n}`); // same block used twice on a page
+    });
+  }
 
   const blocks = [];
-  if (rootNode) {
-    root.find(blockSelector).each((_, el) => {
+  roots.forEach((rootNode, rootIndex) => {
+    $(rootNode).find(blockSelector).each((_, el) => {
       // Keep only the innermost matches: <li><p>…</p></li> yields the <p>, not both.
       if ($(el).find(blockSelector).length > 0) return;
       const text = normalizeText($(el).text());
       if (!text) return;
-      const { path, strictPath } = structuralPaths(el, rootNode);
-      blocks.push({ index: blocks.length, tag: elementName(el), path, strictPath, text });
+
+      let scopeNode = rootNode;
+      let scope = `@${rootIndex}`;
+      if (anchorKeys.size) {
+        for (let node = el; node && node !== rootNode; node = node.parent) {
+          const key = anchorKeys.get(node);
+          if (key) {
+            scopeNode = node;
+            scope = key;
+            break;
+          }
+        }
+      }
+      const { path, strictPath } = structuralPaths(el, scopeNode);
+      blocks.push({ index: blocks.length, tag: elementName(el), scope, path, strictPath, text });
     });
-  }
+  });
 
   return { lang, title, canonical, alternates, links, blocks };
 }

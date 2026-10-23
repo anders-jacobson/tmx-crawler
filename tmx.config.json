@@ -14,8 +14,11 @@
     "exclude": [
       "\\.(pdf|jpe?g|png|gif|svg|webp|ico|zip|gz|docx?|xlsx?|pptx?|mp4|mp3|mov|avi|xml|json|txt|css|js)(\\?.*)?$",
       "/search/?$",
-      "/link/[0-9a-f]+\\.aspx"
-    ]
+      "/link/[0-9a-f]+\\.aspx",
+      "/company/",
+      "/news/"
+    ],
+    "order": "shallow-first"
   },
   "http": {
     "userAgent": "SiteTmxAligner/1.0 (+https://github.com/anders-jacobson/tmx-crawler; localization TM builder)",
@@ -26,8 +29,15 @@
     "respectRobotsTxt": true
   },
   "extraction": {
-    "contentRoot": "main, [role=\"main\"]",
-    "extraNoiseSelectors": [],
+    "contentRoot": ".Banner-main, main#Main",
+    "anchorSelector": "[id^=\"block-\"]",
+    "extraNoiseSelectors": [
+      ".Modal",
+      ".TeaserSlider-nav",
+      ".NewsListBlock-wrapper",
+      "[id^=\"block-\"]:has(.NewsListBlock-wrapper)",
+      ".EventList-wrapper"
+    ],
     "checkHtmlLang": true
   },
   "alignment": {
@@ -38,7 +48,9 @@
     "minLengthRatio": 0.5,
     "maxLengthRatio": 2.5,
     "requireNumberMatch": true,
-    "allowTargetRedirects": false
+    "allowTargetRedirects": false,
+    "requireProtectedTokens": true,
+    "checkTargetLanguage": true
   },
   "output": {
     "file": "output/getinge-en-de.tmx",

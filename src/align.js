@@ -4,13 +4,22 @@
  * Pairing is purely positional ("same DOM layout index"); content heuristics are only used as
  * quality gates to *reject* suspicious pairs, never to invent new ones.
  *
- * Modes
- *   strict    (default) identical tag path incl. sibling counts at every level
- *   path      identical tag path (index only) – more recall, tolerates added siblings elsewhere
+ * Modes (paths are relative to the block's scope: its CMS anchor block, or the content root)
+ *   strict    (default) same scope + identical tag path incl. sibling counts at every level
+ *   path      same scope + identical tag path (index only) – more recall, less safe
  *   sequence  n-th block ↔ n-th block; only used when both pages have the same block count
+ *
+ * Quality gates (in this order): word range, untranslated, wrong language, length ratio,
+ * numbers, protected tokens.
  */
 
-import { countWords, isUntranslated, numbersMatch } from './text.js';
+import {
+  countWords,
+  isUntranslated,
+  missingProtectedTokens,
+  numbersMatch,
+  readsAsSourceLanguage,
+} from './text.js';
 
 export const ALIGNMENT_MODES = Object.freeze(['strict', 'path', 'sequence']);
 
@@ -24,6 +33,10 @@ export const ALIGNMENT_MODES = Object.freeze(['strict', 'path', 'sequence']);
  * @param {number} [options.minLengthRatio=0.5]   target chars / source chars
  * @param {number} [options.maxLengthRatio=2.5]
  * @param {boolean} [options.requireNumberMatch=true]
+ * @param {boolean} [options.requireProtectedTokens=true]  brand/model tokens must carry over
+ * @param {boolean} [options.checkTargetLanguage=true]     reject targets that read as the source language
+ * @param {string} [options.sourceLang]
+ * @param {string} [options.targetLang]
  */
 export function alignBlocks(sourceBlocks, targetBlocks, {
   mode = 'strict',
@@ -32,6 +45,10 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   minLengthRatio = 0.5,
   maxLengthRatio = 2.5,
   requireNumberMatch = true,
+  requireProtectedTokens = true,
+  checkTargetLanguage = true,
+  sourceLang,
+  targetLang,
 } = {}) {
   if (!ALIGNMENT_MODES.includes(mode)) {
     throw new Error(`Unknown alignment mode "${mode}". Use one of: ${ALIGNMENT_MODES.join(', ')}`);
@@ -56,10 +73,11 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       });
     }
   } else {
-    const key = mode === 'strict' ? 'strictPath' : 'path';
-    const targetsByKey = new Map(targetBlocks.map((b) => [b[key], b]));
+    const field = mode === 'strict' ? 'strictPath' : 'path';
+    const keyOf = (block) => `${block.scope ?? '@0'}|${block[field]}`;
+    const targetsByKey = new Map(targetBlocks.map((b) => [keyOf(b), b]));
     for (const src of sourceBlocks) {
-      const tgt = targetsByKey.get(src[key]);
+      const tgt = targetsByKey.get(keyOf(src));
       if (tgt) candidates.push([src, tgt]);
       else reject('no-structural-match');
     }
@@ -76,6 +94,10 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       reject('untranslated');
       continue;
     }
+    if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang)) {
+      reject('wrong-language');
+      continue;
+    }
     const ratio = tgt.text.length / src.text.length;
     if (ratio < minLengthRatio || ratio > maxLengthRatio) {
       reject('length-ratio');
@@ -85,7 +107,11 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       reject('number-mismatch');
       continue;
     }
-    pairs.push({ source: src.text, target: tgt.text, path: src.path, index: src.index });
+    if (requireProtectedTokens && missingProtectedTokens(src.text, tgt.text).length) {
+      reject('protected-token-mismatch');
+      continue;
+    }
+    pairs.push({ source: src.text, target: tgt.text, scope: src.scope, path: src.path, index: src.index });
   }
 
   return {

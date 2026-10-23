@@ -67,19 +67,26 @@ npm packages and Actions up to date.
    German start page) or declares a different `<html lang>` (an untranslated fallback) is skipped.
 4. **Extraction** (cheerio) – site chrome is removed first: navigation, language/region selectors,
    cookie/consent banners (generic, OneTrust, Cookiebot, Usercentrics), footers and legal
-   disclaimers. Blocks containing live widgets (`<time>`, clocks, countdowns, counters,
-   `aria-live`) are dropped entirely so no half sentences reach the TM. Text is then taken from
-   `h1, h2, h3, p, li` inside `<main>` (falls back to `<body>`), innermost element only.
-5. **Alignment** – a source block is paired only with the target block at the **same DOM layout
-   position**:
-   - `strict` (default): same tag path *and* same number of same-tag siblings at every level, so an
-     extra paragraph or section on one page can never shift later segments into wrong pairs
+   disclaimers, plus any site-specific `extraNoiseSelectors`. Blocks containing live widgets
+   (`<time>`, clocks, countdowns, counters, `aria-live`) are dropped entirely so no half sentences
+   reach the TM. Text is then taken from `h1, h2, h3, p, li` inside **every** element matching
+   `contentRoot` (so a hero banner that sits outside `<main>` is included), innermost element only.
+   Collapsed accordion/tab panels are kept.
+5. **Alignment** – a source block is paired only with the target block at the **same layout
+   position within the same CMS block**:
+   - with `anchorSelector` (e.g. `[id^="block-"]` on Optimizely/EPiServer sites, whose block ids are
+     identical in every language) pairing is block-to-block, so re-ordered blocks and blocks that
+     exist on only one language version cannot cause wrong pairs
+   - `strict` (default): same tag path *and* same number of same-tag siblings at every level within
+     the block, so an extra paragraph can never shift later segments into wrong pairs
    - `path`: same tag path only (more recall, less safe) · `sequence`: n-th ↔ n-th, equal counts only
 6. **Filtering** – normalised text (NFC, whitespace collapsed, soft hyphens/zero-width removed);
-   source segment must be **4–80 words**; pairs are rejected when untranslated, when the length ratio
-   is implausible, or when the numbers differ (`1,000.5` and `1.000,5` count as equal). Exact
-   duplicates are removed across the whole site; conflicting translations keep the first and are
-   listed in the report.
+   source segment must be **4–80 words**. A pair is rejected when the target is untranslated or
+   still reads as the source language, when the length ratio is implausible, when the numbers
+   differ (`1,000.5` and `1.000,5` count as equal), or when brand/model tokens and parenthesised
+   acronyms (`PiCCO`, `Servo-u`, `(IABP)`) do not carry over – the typical sign of list items in a
+   different order. Exact duplicates are removed across the whole site; conflicting translations
+   keep the first and are listed in the report.
 7. **TMX 1.4** – streamed with `xmlbuilder2` (`<tmx version="1.4">`, header with
    `segtype="sentence" o-tmf="UTF-8" srclang="en"` and all attributes TMX 1.4 requires, one `<tu>`
    with two `<tuv xml:lang>` per pair, optional `x-source-url`/`x-target-url` props). Characters
@@ -100,20 +107,29 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `source.lang` / `target.lang` | `en` / `de` | Language codes written to `xml:lang` |
 | `discovery.sitemapUrl` | `null` | Sitemap URL, `"auto"`, or `null` for crawling |
 | `discovery.maxPages` / `maxDepth` | `500` / `6` | Crawl limits |
-| `discovery.include` / `exclude` | file types, `/search/` | Regular expressions on source URLs |
+| `discovery.include` / `exclude` | file types, `/search/` | Regular expressions on source URLs (the Getinge config also excludes `/company/` and `/news/`) |
+| `discovery.order` | `shallow-first` | Visit landing/section pages before deep leaf pages, so small samples are representative |
 | `http.userAgent` | descriptive UA | **Put a contact URL or address here** |
 | `http.delayMs` / `concurrency` | `500` / `2` | Politeness settings |
 | `http.respectRobotsTxt` | `true` | Disable only for sites you operate (`--no-robots`) |
-| `extraction.contentRoot` | `main, [role="main"]` | Where translatable copy lives |
+| `extraction.contentRoot` | `main, [role="main"]` | Where translatable copy lives; all outermost matches are used |
+| `extraction.anchorSelector` | `null` | CMS blocks whose id is shared across languages, e.g. `[id^="block-"]` |
 | `extraction.extraNoiseSelectors` | `[]` | Site-specific selectors to strip, added to the built-in list |
 | `alignment.mode` | `strict` | `strict`, `path` or `sequence` |
 | `alignment.minWords` / `maxWords` | `4` / `80` | Segment length filter |
 | `alignment.minLengthRatio` / `maxLengthRatio` | `0.5` / `2.5` | Target/source character ratio |
 | `alignment.requireNumberMatch` | `true` | Reject pairs whose numbers differ |
+| `alignment.requireProtectedTokens` | `true` | Reject pairs where brand/model names or `(ACRONYMS)` are missing in the target |
+| `alignment.checkTargetLanguage` | `true` | Reject targets that still read as the source language (en, de, sv, fr, es, it, nl) |
 | `output.file` / `reportFile` | `output/<src>-<tgt>.tmx` | Output paths |
 | `output.includeProvenance` | `true` | Add source/target URL `<prop>`s to each `<tu>` |
 
 The full default set is in [`src/config.js`](src/config.js).
+
+**Getinge (`tmx.config.json`)** uses `.Banner-main, main#Main` as content roots (the hero banner
+sits outside `<main>`), `[id^="block-"]` as anchors, and strips the news list, event list, teaser
+slider navigation and modal dialogs. Market-specific pages such as the homepage share only some
+blocks with `/int/`; anything that is not the same block in both languages is ignored.
 
 **Tuning tip:** start with `--max-pages 20`, open the report, and look at
 `no-structural-match` counts. If the two language variants differ structurally on many pages,

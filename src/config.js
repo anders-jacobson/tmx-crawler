@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   discovery: {
     sitemapUrl: null,
     followLinks: null, // null = auto: follow links in crawl mode, not in sitemap mode
+    order: 'shallow-first', // sitemap URL order: shallow-first | sitemap
     maxPages: 500,
     maxDepth: 6,
     dropQuery: true,
@@ -35,6 +36,8 @@ export const DEFAULT_CONFIG = Object.freeze({
   },
   extraction: {
     contentRoot: 'main, [role="main"]',
+    anchorSelector: null, // e.g. '[id^="block-"]' for CMS block ids shared across languages
+    anchorAttribute: 'id',
     blockSelector: DEFAULT_BLOCK_SELECTOR,
     noiseSelectors: DEFAULT_NOISE_SELECTORS,
     extraNoiseSelectors: [],
@@ -49,6 +52,8 @@ export const DEFAULT_CONFIG = Object.freeze({
     minLengthRatio: 0.5,
     maxLengthRatio: 2.5,
     requireNumberMatch: true,
+    requireProtectedTokens: true,
+    checkTargetLanguage: true,
     allowTargetRedirects: false,
   },
   output: {
@@ -135,6 +140,7 @@ export function resolveConfig(...layers) {
   assert(Number.isInteger(discovery.maxPages) && discovery.maxPages > 0, 'discovery.maxPages must be a positive integer', errors);
   assert(Number.isInteger(discovery.maxDepth) && discovery.maxDepth >= 0, 'discovery.maxDepth must be an integer >= 0', errors);
   assert(Array.isArray(discovery.include) && Array.isArray(discovery.exclude), 'discovery.include/exclude must be arrays', errors);
+  assert(['shallow-first', 'sitemap'].includes(discovery.order), 'discovery.order must be shallow-first or sitemap', errors);
 
   assert(typeof http.userAgent === 'string' && http.userAgent.trim().length >= 8, 'http.userAgent must be a descriptive string', errors);
   assert(Number.isFinite(http.delayMs) && http.delayMs >= 0, 'http.delayMs must be >= 0', errors);
