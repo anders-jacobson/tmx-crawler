@@ -189,10 +189,15 @@ const LANGUAGE_LETTERS = {
 const LANGUAGE_LETTER_SETS = Object.fromEntries(Object.entries(LANGUAGE_LETTERS).map(([lang, letters]) => [lang, new Set(letters)]));
 
 /**
- * True when at least `minLetters` letters are present and more than `maxShare` of them are
- * foreign to `lang`. Languages without a letter table (e.g. Polish, Japanese) never trigger.
+ * True when the text contains percent-encoded letters ("Bed%FCrfnisse"), or when at least
+ * `minLetters` letters are present and more than `maxShare` of them are foreign to `lang`.
+ * The letter-share test is skipped for languages without a letter table (e.g. Polish, Japanese).
  */
+// Letters published percent-encoded ("f%FCr" for "für") – a CMS encoding bug, not real text.
+const PERCENT_ENCODED_LETTER = /\p{L}%[0-9A-F]{2}|%[0-9A-F]{2}\p{L}/u;
+
 export function looksGarbled(text, lang, { minLetters = 10, maxShare = 0.25 } = {}) {
+  if (PERCENT_ENCODED_LETTER.test(text ?? '')) return true;
   const allowed = LANGUAGE_LETTER_SETS[String(lang ?? '').toLowerCase().split('-')[0]];
   if (!allowed) return false;
   let letters = 0;

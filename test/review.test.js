@@ -43,6 +43,27 @@ test('suggestPairs follows a restructured German article', () => {
     > pairSimilarity(src, region.target[2], { sourceLang: 'en', targetLang: 'de' }));
 });
 
+test('suggestPairs follows a moved paragraph and never suggests untranslated text', () => {
+  const items = suggestPairs({
+    source: [
+      block('p', 'Monitor the drying status, storage limits and all 12 process steps of every endoscope.'),
+      block('p', 'Track the maintenance and repair status of all 40 devices in one place.'),
+      block('p', 'Short guide: Flow Family waveforms and loops'),
+    ],
+    target: [
+      block('p', 'Verfolgen Sie den Wartungs- und Reparaturstatus aller 40 Geräte an einem Ort.'),
+      block('p', 'Überwachen Sie Trocknungsstatus, Lagerfristen und alle 12 Prozessschritte jedes Endoskops.'),
+      block('p', 'Short guide: Flow Family waveforms and loops'),
+    ],
+  }, { sourceLang: 'en', targetLang: 'de', checkPair: (s, t) => (s.text === t.text ? { reason: 'untranslated' } : null) });
+  // The German page swapped the two paragraphs: one is found in page order, the other by the
+  // out-of-order pass. The English text that the German page shows untranslated gets no row.
+  assert.deepEqual(items.map((i) => [i.source.text.slice(0, 9), i.suggestion?.text.slice(0, 9) ?? null]), [
+    ['Monitor t', 'Überwache'],
+    ['Track the', 'Verfolgen'],
+  ]);
+});
+
 test('suggestPairs leaves a block unpaired rather than forcing a weak match', () => {
   const items = suggestPairs({
     source: [block('p', 'Contact our service team for a quote today.')],

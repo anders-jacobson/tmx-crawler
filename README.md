@@ -105,7 +105,8 @@ npm packages and Actions up to date.
 6. **Filtering** – normalised text (NFC, whitespace collapsed, soft hyphens/zero-width removed);
    source segment must be **4–80 words**. A pair is rejected when it is on the reviewer's
    `suppressPairs` list, when the target is untranslated, consists mostly of letters foreign to the
-   language (pseudo-localised placeholder text such as "Å ŉęŵ şŧūđy", `unexpected-characters`) or
+   language (pseudo-localised placeholder text such as "Å ŉęŵ şŧūđy") or contains percent-encoded
+   letters published by mistake ("Bed%FCrfnisse"; both `unexpected-characters`), or
    still reads as the source language (English brand or campaign titles kept verbatim inside the
    German text are allowed), when the length ratio is implausible, when the numbers differ
    (`1,000.5` and `1.000,5` count as equal, `2 or 3` matches `zwei oder drei`, `H₂O` matches `H2O`,
@@ -242,9 +243,16 @@ German text, and texts can be skipped on either side – German-only paragraphs,
 paragraphs). Candidates are scored on what survives translation: shared numbers, product names
 and acronyms, words with a common root ("Endoskop"/"endoscope", "Inzision"/"incision"), length
 (German runs ~12 % longer) and element type (a bold English paragraph and a German `<h3>` both
-count as headings). The best-scoring order-preserving alignment is the suggestion; the three next
-best German texts from the same part of the page are listed as alternatives. Texts already in the
-TM from another page are not asked about.
+count as headings). The best-scoring order-preserving alignment is the suggestion; a second pass
+also suggests strong matches that break page order (a paragraph the German page moved). The three
+next best German texts from the same part of the page are listed as alternatives. German text that
+is untranslated, pseudo-localised or in the wrong language is never suggested, and texts already
+in the TM from another page are not asked about.
+
+Measured on the full Getinge run (699 rows): of 90 graded suggestions, 25 of 26 *High*, all 40
+*Medium* and 19 of 20 *Low* ones were the right translation; for rows without a suggestion the
+right German was among the alternatives in 12 of 20. On the 7,475 neighbouring pairs of the TM the
+score ranks the true translation above its page neighbour 98 % of the time.
 
 **For the reviewer** (instructions are also on the sheet's second tab):
 

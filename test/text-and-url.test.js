@@ -155,6 +155,8 @@ test('looksGarbled flags pseudo-localised text, not names or loanwords', () => {
   assert.ok(!looksGarbled('Präzises, akkurates Strömungsmuster für Großgeräte.', 'de'));
   assert.ok(!looksGarbled('Ŧĥę şŧūđy řęvęäľęđ ŧĥäŧ äľmőşŧ ĥäľƒ', 'pl'), 'languages without a letter table never trigger');
   assert.ok(!looksGarbled('Ŧĥę', 'de'), 'too short to judge');
+  assert.ok(looksGarbled('Individuelle Anpassung an Ihre Bed%FCrfnisse', 'de'), 'percent-encoded umlaut');
+  assert.ok(!looksGarbled('Bis zu 20 % weniger Energie, 100%ige Kontrolle', 'de'));
 });
 
 test('token equivalents are per target language and match whole words only', () => {

@@ -126,7 +126,7 @@ export function makePairChecker({
     if (isUntranslated(src.text, tgt.text)) return fail('untranslated');
     if (checkCharacters) {
       const garbled = looksGarbled(tgt.text, targetLang) ? targetLang : looksGarbled(src.text, sourceLang) ? sourceLang : null;
-      if (garbled) return fail('unexpected-characters', `mostly letters outside the "${garbled}" alphabet (placeholder or pseudo-localised text?)`);
+      if (garbled) return fail('unexpected-characters', `not real "${garbled}" text (pseudo-localised placeholder or percent-encoded letters)`);
     }
     if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang, src.text)) {
       return fail('wrong-language', `target reads as "${sourceLang}"`);
