@@ -1,0 +1,44 @@
+{
+  "name": "site-tmx-aligner",
+  "version": "1.0.0",
+  "description": "Crawls parallel language variants of a website, aligns segments by DOM position and writes a DeepL-compatible TMX 1.4 translation memory.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "build-tmx": "bin/build-tmx.js"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:tmx": "node bin/build-tmx.js",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.js\"",
+    "lint": "eslint .",
+    "check": "npm run lint && npm test"
+  },
+  "keywords": [
+    "tmx",
+    "translation-memory",
+    "deepl",
+    "localization",
+    "crawler",
+    "alignment"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "fast-xml-parser": "^5.11.2",
+    "p-limit": "^7.3.3",
+    "robots-parser": "^3.0.1",
+    "xmlbuilder2": "^4.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0"
+  }
+}

@@ -1,0 +1,130 @@
+name: Build TMX
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_base:
+        description: Source-language base URL
+        required: true
+        default: https://www.getinge.com/int/
+      target_base:
+        description: Target-language base URL
+        required: true
+        default: https://www.getinge.com/de/
+      source_lang:
+        description: Source language code
+        required: true
+        default: en
+      target_lang:
+        description: Target language code
+        required: true
+        default: de
+      sitemap:
+        description: 'Sitemap URL, "auto" (read from robots.txt) or "none" for a recursive crawl'
+        required: true
+        default: auto
+      max_pages:
+        description: Maximum number of source pages
+        required: true
+        default: '500'
+      delay_ms:
+        description: Minimum delay between requests (ms)
+        required: true
+        default: '500'
+      align_mode:
+        description: Alignment mode
+        type: choice
+        options: [strict, path, sequence]
+        default: strict
+      create_release:
+        description: Also publish the TMX as a GitHub Release asset
+        type: boolean
+        default: false
+  # Uncomment for a scheduled refresh (Mondays 03:17 UTC) using the defaults in tmx.config.json:
+  # schedule:
+  #   - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-tmx
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Crawl & build TMX
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    outputs:
+      tmx_name: ${{ steps.build.outputs.tmx_name }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Crawl and build TMX
+        id: build
+        # Inputs are passed through env (never interpolated into the script) to prevent injection.
+        env:
+          SOURCE_BASE: ${{ inputs.source_base }}
+          TARGET_BASE: ${{ inputs.target_base }}
+          SOURCE_LANG: ${{ inputs.source_lang }}
+          TARGET_LANG: ${{ inputs.target_lang }}
+          SITEMAP: ${{ inputs.sitemap }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          DELAY_MS: ${{ inputs.delay_ms }}
+          ALIGN_MODE: ${{ inputs.align_mode }}
+        run: |
+          set -euo pipefail
+          args=(--config tmx.config.json)
+          [ -n "${SOURCE_BASE:-}" ] && args+=(--source "$SOURCE_BASE")
+          [ -n "${TARGET_BASE:-}" ] && args+=(--target "$TARGET_BASE")
+          [ -n "${SOURCE_LANG:-}" ] && args+=(--source-lang "$SOURCE_LANG")
+          [ -n "${TARGET_LANG:-}" ] && args+=(--target-lang "$TARGET_LANG")
+          [ -n "${MAX_PAGES:-}" ] && args+=(--max-pages "$MAX_PAGES")
+          [ -n "${DELAY_MS:-}" ] && args+=(--delay "$DELAY_MS")
+          [ -n "${ALIGN_MODE:-}" ] && args+=(--align-mode "$ALIGN_MODE")
+          [ -n "${SITEMAP:-}" ] && args+=(--sitemap "$SITEMAP")
+          name="site-${SOURCE_LANG:-en}-${TARGET_LANG:-de}"
+          args+=(--out "output/${name}.tmx" --report "output/${name}.report.json")
+          echo "tmx_name=${name}" >> "$GITHUB_OUTPUT"
+          node bin/build-tmx.js "${args[@]}"
+
+      - name: Upload TMX and report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: tmx-${{ inputs.source_lang || 'en' }}-${{ inputs.target_lang || 'de' }}-run${{ github.run_number }}
+          path: output/
+          if-no-files-found: warn
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: inputs.create_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: tmx-${{ inputs.source_lang }}-${{ inputs.target_lang }}-run${{ github.run_number }}
+          path: output
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ needs.build.outputs.tmx_name }}
+        run: |
+          tag="tmx-${NAME#site-}-$(date -u +%Y%m%d)-run${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" output/*.tmx output/*.report.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "TMX ${NAME#site-} ($(date -u +%Y-%m-%d))" \
+            --notes "Translation memory built by workflow run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

@@ -1,0 +1,7 @@
+node_modules/
+output/
+coverage/
+*.tmx.partial
+.DS_Store
+.env
+npm-debug.log*

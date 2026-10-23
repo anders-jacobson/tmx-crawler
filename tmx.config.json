@@ -1,0 +1,51 @@
+{
+  "source": {
+    "baseUrl": "https://www.getinge.com/int/",
+    "lang": "en"
+  },
+  "target": {
+    "baseUrl": "https://www.getinge.com/de/",
+    "lang": "de"
+  },
+  "discovery": {
+    "sitemapUrl": "auto",
+    "maxPages": 500,
+    "maxDepth": 6,
+    "exclude": [
+      "\\.(pdf|jpe?g|png|gif|svg|webp|ico|zip|gz|docx?|xlsx?|pptx?|mp4|mp3|mov|avi|xml|json|txt|css|js)(\\?.*)?$",
+      "/search/?$",
+      "/link/[0-9a-f]+\\.aspx"
+    ]
+  },
+  "http": {
+    "userAgent": "SiteTmxAligner/1.0 (+https://github.com/anders-jacobson/tmx-crawler; localization TM builder)",
+    "delayMs": 500,
+    "concurrency": 2,
+    "timeoutMs": 20000,
+    "retries": 3,
+    "respectRobotsTxt": true
+  },
+  "extraction": {
+    "contentRoot": "main, [role=\"main\"]",
+    "extraNoiseSelectors": [],
+    "checkHtmlLang": true
+  },
+  "alignment": {
+    "mapping": "auto",
+    "mode": "strict",
+    "minWords": 4,
+    "maxWords": 80,
+    "minLengthRatio": 0.5,
+    "maxLengthRatio": 2.5,
+    "requireNumberMatch": true,
+    "allowTargetRedirects": false
+  },
+  "output": {
+    "file": "output/getinge-en-de.tmx",
+    "reportFile": "output/getinge-en-de.report.json",
+    "includeProvenance": true
+  },
+  "logging": {
+    "level": "info"
+  }
+}
