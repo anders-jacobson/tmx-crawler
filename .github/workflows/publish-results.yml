@@ -1,0 +1,73 @@
+name: Publish results
+
+# Copies the TMX and report of a Build TMX run to the `tmx-results` branch (runs/run<N>/), so they
+# can be read with plain git or the GitHub API – no artifact download needed. Called by Build TMX
+# after every run; can also be started by hand for an earlier run (its run id is in the run URL).
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: ID of the Build TMX run to publish (the number at the end of its URL)
+        required: true
+  workflow_call:
+    inputs:
+      run_id:
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: publish-results
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Push TMX and report to tmx-results
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: tmx-*
+          merge-multiple: true
+          path: output
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Commit to the tmx-results branch
+        # The run id is passed through env and validated, never interpolated into the script.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          case "$RUN_ID" in ''|*[!0-9]*) echo "run_id must be a number" >&2; exit 1 ;; esac
+          run_number=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}" --jq .run_number)
+          dir="runs/run${run_number}"
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          git init -q -b tmx-results results
+          cd results
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git ls-remote --exit-code --heads "$remote" tmx-results > /dev/null; then
+            git fetch -q --depth 1 "$remote" tmx-results
+            git reset -q --hard FETCH_HEAD
+          fi
+
+          rm -rf "$dir"
+          mkdir -p "$dir"
+          cp ../output/* "$dir/"
+          printf '%s\n' "$dir" > LATEST
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing new to publish.'
+            exit 0
+          fi
+          git commit -q -m "Results of Build TMX run ${run_number}" \
+            -m "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+          git push -q "$remote" tmx-results
+          echo "Published to branch \`tmx-results\`, folder \`${dir}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -40,6 +40,10 @@ on:
         description: Also publish the TMX as a GitHub Release asset
         type: boolean
         default: false
+      publish_results:
+        description: Copy the TMX and report to the tmx-results branch (readable without downloading artifacts)
+        type: boolean
+        default: true
   # Uncomment for a scheduled refresh (Mondays 03:17 UTC) using the defaults in tmx.config.json:
   # schedule:
   #   - cron: '17 3 * * 1'
@@ -104,6 +108,17 @@ jobs:
           path: output/
           if-no-files-found: warn
           retention-days: 30
+
+  results:
+    name: Publish results
+    needs: build
+    if: ${{ !cancelled() && inputs.publish_results != false }}
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish-results.yml
+    with:
+      run_id: ${{ format('{0}', github.run_id) }}
 
   release:
     name: Publish GitHub Release

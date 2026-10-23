@@ -51,6 +51,7 @@ page URLs. That makes every quality check reviewable and tunable on evidence.
 |---|---|---|
 | **CI** (`ci.yml`) | push to `main`, pull requests | ESLint + full test suite on Node 22 and 24, incl. DTD validation of generated TMX with `xmllint` |
 | **Build TMX** (`build-tmx.yml`) | *Actions → Build TMX → Run workflow* | Crawls the site with the inputs you choose, uploads `output/` (TMX + report) as a workflow artifact for 30 days, writes the summary to the job page, and optionally publishes the TMX as a GitHub Release |
+| **Publish results** (`publish-results.yml`) | after every Build TMX run; or by hand with a run id | Copies that run's TMX and report to the `tmx-results` branch (`runs/run<N>/`, newest folder named in `LATEST`), so they can be read with `git fetch` or the GitHub API without downloading artifacts. Untick *publish_results* to skip it. The repository is public, so these files are too |
 
 A weekly schedule is prepared (commented out) at the top of `build-tmx.yml`. Dependabot keeps
 npm packages and Actions up to date.
