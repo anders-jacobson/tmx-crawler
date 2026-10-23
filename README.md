@@ -93,11 +93,23 @@ npm packages and Actions up to date.
    - `path`: same tag path only (more recall, less safe) · `sequence`: n-th ↔ n-th, equal counts only
 6. **Filtering** – normalised text (NFC, whitespace collapsed, soft hyphens/zero-width removed);
    source segment must be **4–80 words**. A pair is rejected when the target is untranslated or
-   still reads as the source language, when the length ratio is implausible, when the numbers
-   differ (`1,000.5` and `1.000,5` count as equal), or when brand/model tokens and parenthesised
-   acronyms (`PiCCO`, `Servo-u`, `(IABP)`) do not carry over – the typical sign of list items in a
-   different order. Exact duplicates are removed across the whole site; conflicting translations
-   keep the first and are listed in the report.
+   still reads as the source language (English brand or campaign titles kept verbatim inside the
+   German text are allowed), when the length ratio is implausible, when the numbers differ
+   (`1,000.5` and `1.000,5` count as equal, and `2 or 3` matches `zwei oder drei`), or when
+   brand/model tokens and parenthesised acronyms (`PiCCO`, `Servo-u`, `T-DOC`, `(IABP)`) do not
+   carry over – the typical sign of two different items. Exact duplicates are removed across the
+   whole site; conflicting translations keep the first and are listed in the report.
+
+**Design principle – the website translations are approved.** The target pages have been
+reviewed and approved by human reviewers, so free adaptations ("A Touch of Clarity" →
+"Ein klares Konzept") are deliberate and belong in the TM. The checks therefore only test whether
+two texts *correspond* (same CMS object, same position, same numbers and product names, right
+language) and never penalise free wording. Any future semantic-similarity check must be tuned
+to accept such adaptations.
+
+**Measured accuracy.** 30-page Getinge run (en → de): 202 units, 192 correct (95 %); all errors
+came from market-specific listings and one dropped product name. After excluding the article
+teaser grid and the fixes above, a replay of the same data gives 189 units with 0 known errors.
 7. **TMX 1.4** – streamed with `xmlbuilder2` (`<tmx version="1.4">`, header with
    `segtype="sentence" o-tmf="UTF-8" srclang="en"` and all attributes TMX 1.4 requires, one `<tu>`
    with two `<tuv xml:lang>` per pair, optional `x-source-url`/`x-target-url` props). Characters
@@ -143,8 +155,8 @@ The full default set is in [`src/config.js`](src/config.js).
 sits outside `<main>`) and three anchor types: CMS blocks (`block-…`), product cards
 (`data-item-id`) and solution-list items (`itm…_<id>`). It strips the news list, event list, teaser
 slider navigation and modal dialogs, plus two things measured to cause wrong pairs on real pages:
-related-article teaser cards (`.ColorTeaser`; their text is aligned from the article pages
-themselves) and product listings – the product list component and individual product cards
+related-article and article-grid teaser cards (`.ColorTeaser`, `.Article-teaser`; their text is
+aligned from the article pages themselves) and product listings – the product list component and individual product cards
 (`.ProductList`, `.ProductList-item`), whose content differs per market. Product pages themselves
 are still crawled and aligned. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
 Market-specific pages such as the homepage share only some blocks with `/int/`; anything that is

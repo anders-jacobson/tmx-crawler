@@ -40,15 +40,53 @@ export function numberFingerprint(value) {
   return [...new Set(matches.map((m) => m.replace(/\D/g, '')))].sort();
 }
 
+// Number words two..twelve per language. "one"/"ein" are deliberately absent: they are articles
+// and pronouns far more often than numbers ("one of the…", "eine der…").
+const NUMBER_WORDS = {
+  en: 'two three four five six seven eight nine ten eleven twelve',
+  de: 'zwei drei vier fünf sechs sieben acht neun zehn elf zwölf',
+  sv: 'två tre fyra fem sex sju åtta nio tio elva tolv',
+  fr: 'deux trois quatre cinq six sept huit neuf dix onze douze',
+  es: 'dos tres cuatro cinco seis siete ocho nueve diez once doce',
+  it: 'due tre quattro cinque sei sette otto nove dieci undici dodici',
+  nl: 'twee drie vier vijf zes zeven acht negen tien elf twaalf',
+};
+const NUMBER_WORD_MAPS = Object.fromEntries(Object.entries(NUMBER_WORDS).map(([lang, words]) => [
+  lang,
+  new Map(words.split(' ').map((word, i) => [word, String(i + 2)])),
+]));
+
 /**
- * True when both segments contain the same set of numbers.
+ * Numbers written as words ("zwei oder drei") in the given language, as digit strings.
+ * @param {string} value
+ * @param {string} [lang]
+ * @returns {Set<string>}
+ */
+export function numberWordValues(value, lang) {
+  const map = NUMBER_WORD_MAPS[String(lang ?? '').toLowerCase().split('-')[0]];
+  const values = new Set();
+  if (!map) return values;
+  for (const word of (value ?? '').toLowerCase().match(/\p{L}+/gu) ?? []) {
+    if (map.has(word)) values.add(map.get(word));
+  }
+  return values;
+}
+
+/**
+ * True when both segments contain the same numbers. Every digit-number on one side must appear
+ * on the other side either as digits or as a number word ("2 or 3" ↔ "zwei oder drei"). Number
+ * words alone never cause a mismatch ("the two modes" ↔ "die beiden Modi" is fine).
  * @param {string} a
  * @param {string} b
+ * @param {string} [langA]
+ * @param {string} [langB]
  */
-export function numbersMatch(a, b) {
-  const fa = numberFingerprint(a);
-  const fb = numberFingerprint(b);
-  return fa.length === fb.length && fa.every((n, i) => n === fb[i]);
+export function numbersMatch(a, b, langA, langB) {
+  const digitsA = numberFingerprint(a);
+  const digitsB = numberFingerprint(b);
+  const coverA = new Set([...digitsA, ...numberWordValues(a, langA)]);
+  const coverB = new Set([...digitsB, ...numberWordValues(b, langB)]);
+  return digitsA.every((n) => coverB.has(n)) && digitsB.every((n) => coverA.has(n));
 }
 
 /**
@@ -66,9 +104,10 @@ export function isUntranslated(source, target) {
 // ("(IABP)"). If such a token is missing from the target, the two segments almost certainly
 // describe different things (e.g. list items in a different order on the translated page).
 const PROTECTED_PATTERNS = [
-  { re: /\b[A-Za-z]*[a-z][A-Z][A-Za-z]*\b/g, group: 0 },
-  { re: /\b[A-Z][a-z]+-[a-z0-9]\b/g, group: 0 },
-  { re: /\(([A-Z][A-Z0-9-]+)\)/g, group: 1 },
+  { re: /\b[A-Za-z]*[a-z][A-Z][A-Za-z]*\b/g, group: 0 }, // PiCCO, IntelliVue, FleetView
+  { re: /\b[A-Z][a-z]+-[a-z0-9]\b/g, group: 0 }, // Servo-u, Servo-n
+  { re: /\b[A-Z][A-Z0-9]*-[A-Z][A-Z0-9]+\b/g, group: 0 }, // T-DOC, VV-ECMO
+  { re: /\(([A-Z][A-Z0-9-]+)\)/g, group: 1 }, // (IABP), (ECMO)
 ];
 
 /**
@@ -109,21 +148,51 @@ const STOPWORD_SETS = Object.fromEntries(Object.entries(STOPWORDS).map(([lang, w
 const baseLang = (lang) => String(lang ?? '').toLowerCase().split('-')[0];
 
 /**
+ * Marks target words that belong to a title-like phrase kept verbatim from the source: a run of
+ * consecutive words whose every word pair also occurs in the source, containing at least two
+ * capitalised words ("From Culture to Cure – Film ansehen"). Such retained English brand or
+ * campaign titles are legitimate inside a translation and must not count as source language.
+ * Ordinary sentences copied with small edits are not title-like and stay counted.
+ */
+function retainedTitleWords(words, sourceText) {
+  const keep = new Array(words.length).fill(false);
+  if (!sourceText) return keep;
+  const src = (sourceText.match(/\p{L}+/gu) ?? []).map((w) => w.toLowerCase());
+  const bigrams = new Set(src.slice(1).map((w, i) => `${src[i]} ${w}`));
+  let start = 0;
+  for (let i = 1; i <= words.length; i += 1) {
+    const continues = i < words.length && bigrams.has(`${words[i - 1].toLowerCase()} ${words[i].toLowerCase()}`);
+    if (continues) continue;
+    const run = words.slice(start, i);
+    if (run.length >= 2 && run.filter((w) => /^\p{Lu}/u.test(w)).length >= 2) {
+      for (let j = start; j < i; j += 1) keep[j] = true;
+    }
+    start = i;
+  }
+  return keep;
+}
+
+/**
  * True when `text`, which should be in `targetLang`, reads like `sourceLang` instead.
  * Requires at least two function words that are exclusive to the source language and more of
- * them than target-language function words. Unknown languages never trigger.
+ * them than target-language function words. Unknown languages never trigger. When `sourceText`
+ * is given, title-like phrases retained verbatim from it are ignored.
  */
-export function readsAsSourceLanguage(text, sourceLang, targetLang) {
+export function readsAsSourceLanguage(text, sourceLang, targetLang, sourceText) {
   const src = STOPWORD_SETS[baseLang(sourceLang)];
   const tgt = STOPWORD_SETS[baseLang(targetLang)];
   if (!src || !tgt || src === tgt) return false;
+  const words = (text ?? '').match(/\p{L}+/gu) ?? [];
+  const retained = retainedTitleWords(words, sourceText);
   let srcHits = 0;
   let tgtHits = 0;
-  for (const word of (text ?? '').toLowerCase().match(/\p{L}+/gu) ?? []) {
+  words.forEach((original, i) => {
+    if (retained[i]) return;
+    const word = original.toLowerCase();
     const inSrc = src.has(word);
     const inTgt = tgt.has(word);
     if (inSrc && !inTgt) srcHits += 1;
     else if (inTgt && !inSrc) tgtHits += 1;
-  }
+  });
   return srcHits >= 2 && srcHits > tgtHits;
 }

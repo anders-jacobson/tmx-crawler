@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countWords, isUntranslated, normalizeText, numberFingerprint, numbersMatch } from '../src/text.js';
+import {
+  countWords,
+  isUntranslated,
+  normalizeText,
+  numberFingerprint,
+  numbersMatch,
+  numberWordValues,
+  protectedTokens,
+  readsAsSourceLanguage,
+} from '../src/text.js';
+import { alignBlocks } from '../src/align.js';
 import {
   hreflangMatches,
   isSameDocument,
@@ -82,4 +92,47 @@ test('include/exclude filters', () => {
   assert.ok(!passesFilters('https://x.com/int/products/a.pdf', filters));
   assert.ok(!passesFilters('https://x.com/int/company/', filters));
   assert.throws(() => compilePatterns(['(']), /Invalid pattern regular expression/);
+});
+
+// --- Fixes derived from the 30-page Getinge evaluation ------------------------------------------
+
+const pairOf = (en, de) => {
+  const block = (text) => [{ index: 0, tag: 'p', scope: 'b', path: 'p[0]', strictPath: 'p[0:1]', text }];
+  return alignBlocks(block(en), block(de), { sourceLang: 'en', targetLang: 'de' });
+};
+
+test('numbers written as words reconcile with digits, but words alone never cause a mismatch', () => {
+  assert.deepEqual([...numberWordValues('innerhalb von zwei oder drei Werktagen', 'de')], ['2', '3']);
+  assert.deepEqual([...numberWordValues('one of the two modes', 'en')], ['2'], '"one" is ignored on purpose');
+  assert.ok(numbersMatch('typically within 2 or 3 business days', 'in der Regel innerhalb von zwei oder drei Werktagen', 'en', 'de'));
+  assert.ok(numbersMatch('the two modes complement each other', 'die beiden Modi ergänzen sich', 'en', 'de'));
+  assert.ok(!numbersMatch('Management of the Neonate', '12. Forum für Atmungstherapie', 'en', 'de'));
+  assert.ok(!numbersMatch('We operate 25 sites', 'Wir betreiben zwei Standorte', 'en', 'de'));
+  assert.equal(pairOf(
+    'Our teams aim to respond to inquiries as quickly as possible, typically within 2 or 3 business days.',
+    'Unsere Teams bemühen sich, Anfragen so schnell wie möglich zu beantworten, in der Regel innerhalb von zwei oder drei Werktagen.',
+  ).pairs.length, 1);
+});
+
+test('uppercase hyphenated product names must carry over (T-DOC)', () => {
+  assert.deepEqual(protectedTokens('Read more about T-DOC and VV-ECMO, not COVID-19'), ['T-DOC', 'VV-ECMO']);
+  const { stats } = pairOf('Read more about T-DOC', 'Weiterlesen');
+  assert.equal(stats.rejected['protected-token-mismatch'], 1);
+  assert.equal(pairOf('Read more about T-DOC', 'Erfahren Sie mehr über T-DOC').pairs.length, 1);
+});
+
+test('English titles kept inside a German sentence do not trip the language check', () => {
+  const source = 'From Culture to Cure - Watch the film';
+  assert.ok(!readsAsSourceLanguage('From Culture to Cure – Film ansehen', 'en', 'de', source));
+  assert.ok(readsAsSourceLanguage('From Culture to Cure – Film ansehen', 'en', 'de'), 'without the source the title still counts');
+  // Real English fallback text is still caught, even when it shares words with the source …
+  assert.ok(readsAsSourceLanguage(
+    'As the building block to living organisms, cells make up our bodies and perform many functions',
+    'en', 'de', 'One of the major technologies introduced to the biotech industry in recent years',
+  ));
+  // … and so is lightly edited English (not title-like, so nothing is excused).
+  assert.ok(readsAsSourceLanguage(
+    'Learn how to prime the circuit step by step before therapy', 'en', 'de',
+    'Learn how to prime the circuit before starting therapy',
+  ));
 });

@@ -98,7 +98,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       reject('untranslated', src, tgt);
       continue;
     }
-    if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang)) {
+    if (checkTargetLanguage && readsAsSourceLanguage(tgt.text, sourceLang, targetLang, src.text)) {
       reject('wrong-language', src, tgt, `target reads as "${sourceLang}"`);
       continue;
     }
@@ -107,7 +107,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       reject('length-ratio', src, tgt, `ratio ${ratio.toFixed(2)}`);
       continue;
     }
-    if (requireNumberMatch && !numbersMatch(src.text, tgt.text)) {
+    if (requireNumberMatch && !numbersMatch(src.text, tgt.text, sourceLang, targetLang)) {
       reject('number-mismatch', src, tgt,
         `numbers [${numberFingerprint(src.text).join(', ')}] vs [${numberFingerprint(tgt.text).join(', ')}]`);
       continue;
