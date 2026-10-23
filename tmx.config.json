@@ -17,7 +17,8 @@
       "/link/[0-9a-f]+\\.aspx",
       "/company/",
       "/news/",
-      "/settings/"
+      "/settings/",
+      "/insights/events/"
     ],
     "order": "shallow-first"
   },

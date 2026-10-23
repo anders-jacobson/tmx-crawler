@@ -171,7 +171,7 @@ enters the TM; accordion titles survive because only CTA classes are removed, ne
 know: a single-word heading may carry a context-specific choice (the section title "Insights" is
 "News & Events" in German), and the same heading translated differently on two pages shows up in
 the report's `conflicts` list – set a heading minimum of 2 words if you prefer to skip one-word
-headings. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
+headings. `/company/`, `/news/`, `/insights/events/` and CMS `/settings/` pages are excluded.
 Market-specific pages such as the homepage share only some blocks with `/int/`; anything that is
 not the same block in both languages is ignored.
 
