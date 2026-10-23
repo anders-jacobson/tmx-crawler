@@ -128,7 +128,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: tmx-${{ inputs.source_lang }}-${{ inputs.target_lang }}-run${{ github.run_number }}
           path: output
