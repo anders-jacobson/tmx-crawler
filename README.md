@@ -136,6 +136,11 @@ all units confirmed 42 wrong ones (0.5 %). They came from three rewritten German
 shifts – now caught by the structure guard), one German page publishing pseudo-localised
 placeholder text (now `unexpected-characters`), market-specific document lists (now excluded), one
 divergent duplicate (now dropped), and 9 one-off mismatches that are listed in `suppressPairs`.
+
+After the fixes (same 864 pages): with the whole-block guard (`scope`) 7,676 units and none of the
+42 known errors, but about 500 units dropped of which 98 % were correct; with the default `prefix`
+guard 7,976 units, still none of the 42 known errors, and 302 of those units back – a random 100 of
+them were all correctly paired.
 7. **TMX 1.4** – streamed with `xmlbuilder2` (`<tmx version="1.4">`, header with
    `segtype="sentence" o-tmf="UTF-8" srclang="en"` and all attributes TMX 1.4 requires, one `<tu>`
    with two `<tuv xml:lang>` per pair, optional `x-source-url`/`x-target-url` props). Characters
@@ -218,9 +223,7 @@ German page has been corrected.
 `no-structural-match` and `structure-drift` counts. If the two language variants differ
 structurally on many pages, `--align-mode path` recovers more segments (review the result before
 importing). `structure-drift` samples show what the structure guard costs; it can be switched off
-with `alignment.structureGuard: "off"`, at the price of possible paragraph shifts. Measured on the
-full Getinge run, `scope` removed about 500 units of which 98 % were correct; `prefix` keeps the
-text before the difference.
+with `alignment.structureGuard: "off"`, at the price of possible paragraph shifts.
 
 ## Importing into DeepL
 
