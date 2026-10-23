@@ -73,9 +73,71 @@ test('strict alignment never pairs across a structural shift', () => {
   assert.equal(strict.pairs.length, 0);
   assert.equal(strict.stats.rejected['no-structural-match'], 2);
 
-  // The looser "path" mode pairs by index only and *would* mis-pair the German-only notice:
-  const loose = alignBlocks(en, de, { mode: 'path' });
+  // The looser "path" mode pairs by index only and *would* mis-pair the German-only notice …
+  const loose = alignBlocks(en, de, { mode: 'path', requireSameStructure: false });
   assert.equal(loose.pairs[0]?.target, 'Dieser Hinweis erscheint nur auf der deutschen Seite.');
+  // … unless the structure guard is on (the default).
+  assert.equal(alignBlocks(en, de, { mode: 'path' }).pairs.length, 0);
+});
+
+const anchoredBlocksOf = (lang, main) => extractPage(page(lang, main), { anchors: [{ selector: '[id^="block-"]' }] }).blocks;
+
+test('structure guard: equal per-tag counts in a different order drop the whole scope', () => {
+  // German turns the bold "Challenge" paragraph into a heading and adds a paragraph further down –
+  // the number of <p> stays the same, so strict paths alone would pair every paragraph one off.
+  const en = anchoredBlocksOf('en', `<div id="block-1">
+    <h2>Why endoscopes are different</h2>
+    <p>Endoscopes are reprocessed many times every single day.</p>
+    <p>Challenge 1: keeping track of every device</p>
+    <p>Busy units use many similar endoscopes during a day.</p>
+    <p>This level of traceability is particularly important here.</p></div>
+    <div id="block-2"><h2>Summary of the article</h2><p>Complete information helps every department.</p></div>`);
+  const de = anchoredBlocksOf('de', `<div id="block-1">
+    <h2>Warum Endoskope anders sind</h2>
+    <p>Endoskope werden jeden Tag viele Male aufbereitet.</p>
+    <h3>Herausforderung 1: Den Überblick über jedes Gerät behalten</h3>
+    <p>In ausgelasteten Abteilungen werden viele ähnliche Endoskope genutzt.</p>
+    <p>Diese Rückverfolgbarkeit ist hier besonders wichtig.</p>
+    <p>Mitarbeitende benötigen daher klare Anweisungen.</p></div>
+    <div id="block-2"><h2>Zusammenfassung des Artikels</h2><p>Vollständige Informationen helfen jeder Abteilung.</p></div>`);
+  const options = { mode: 'strict', minWordsByTag: { h2: 1, h3: 1 } };
+  const guarded = alignBlocks(en, de, options);
+  assert.ok(guarded.stats.rejected['structure-drift'] >= 4, JSON.stringify(guarded.stats.rejected));
+  assert.deepEqual(guarded.pairs.map((p) => p.target), ['Zusammenfassung des Artikels', 'Vollständige Informationen helfen jeder Abteilung.']);
+  const drift = guarded.rejectedPairs.find((r) => r.reason === 'structure-drift');
+  assert.match(drift.detail, /position 3 \(p vs h3/);
+
+  const unguarded = alignBlocks(en, de, { ...options, requireSameStructure: false });
+  assert.ok(unguarded.pairs.some((p) => p.source.startsWith('Busy units') && p.target.startsWith('Diese Rückverfolgbarkeit')),
+    'without the guard the paragraphs slide by one');
+});
+
+test('placeholder text, suppression list and acronym equivalents', () => {
+  const en = blocksOf('en', `
+    <p>A new study shows that few hospitals use available AI technology.</p>
+    <p>ISOPRIME isolator for sterility testing</p>
+    <p>Optimize the Central Sterile Supply Department (CSSD) workflow.</p>
+    <p>Use artificial intelligence (AI) to plan the day.</p>`);
+  const de = blocksOf('de', `
+    <p>Å ŉęŵ şŧūđy şĥőŵş ŧĥäŧ ƒęŵ ĥőşpįŧäľş ūşę äväįľäþľę ÅĨ ŧęčĥŉőľőģy.</p>
+    <p>Lösungen für Sterilitätstests</p>
+    <p>Optimieren Sie die Abläufe der Aufbereitungseinheit für Medizinprodukte (AEMP).</p>
+    <p>Planen Sie den Tag mit künstlicher Intelligenz.</p>`);
+  const base = { mode: 'strict', sourceLang: 'en', targetLang: 'de', requireNumberMatch: false };
+  const withoutEquivalents = alignBlocks(en, de, base);
+  assert.equal(withoutEquivalents.stats.rejected['unexpected-characters'], 1);
+  assert.equal(withoutEquivalents.stats.rejected['protected-token-mismatch'], 2);
+
+  const result = alignBlocks(en, de, {
+    ...base,
+    tokenEquivalents: { de: { CSSD: ['AEMP', 'ZSVA'], AI: ['KI'] } },
+    suppressPairs: [{ source: 'ISOPRIME isolator for sterility testing', target: 'Lösungen für Sterilitätstests' }],
+  });
+  assert.equal(result.stats.rejected.suppressed, 1);
+  assert.equal(result.stats.rejected['unexpected-characters'], 1);
+  // CSSD → AEMP is accepted; "AI" is still missing because the German says neither AI nor KI.
+  assert.deepEqual(result.pairs.map((p) => p.target), ['Optimieren Sie die Abläufe der Aufbereitungseinheit für Medizinprodukte (AEMP).']);
+  assert.equal(result.stats.rejected['protected-token-mismatch'], 1);
 });
 
 test('quality gates: word range, untranslated, length ratio, numbers', () => {
@@ -105,14 +167,23 @@ test('sequence mode requires identical block counts', () => {
   assert.equal(result.stats.rejected['block-count-mismatch'], 2);
 });
 
-test('dedupeUnits keeps the first translation and counts conflicts', () => {
-  const { units, duplicates, conflicts, conflictSamples } = dedupeUnits([
-    { source: 'Contact us today for details.', target: 'Kontaktieren Sie uns noch heute.', sourceUrl: 'a' },
-    { source: 'Contact us today for details.', target: 'Kontaktieren Sie uns noch heute.', sourceUrl: 'b' },
-    { source: 'Contact us today for details.', target: 'Nehmen Sie heute Kontakt auf.', sourceUrl: 'c' },
-  ]);
-  assert.equal(units.length, 1);
-  assert.equal(duplicates, 1);
-  assert.equal(conflicts, 1);
-  assert.equal(conflictSamples[0].droppedFrom, 'c');
+test('dedupeUnits: majority wins, similar ties keep the first, divergent ties are dropped', () => {
+  const u = (source, target, sourceUrl) => ({ source, target, sourceUrl });
+  const input = [
+    u('Contact us today for details.', 'Nehmen Sie heute Kontakt auf.', 'a'),
+    u('Contact us today for details.', 'Kontaktieren Sie uns noch heute.', 'b'),
+    u('Contact us today for details.', 'Kontaktieren Sie uns noch heute.', 'c'),
+    u('Access – right to request information.', 'Auskunftsrecht – Recht, Informationen anzufordern.', 'd'),
+    u('Access – right to request information.', 'Auskunftsrecht – Recht, Informationen zu verlangen.', 'e'),
+    u('To support our customers we use remote FAT.', 'Eine Werksabnahme ist ein wichtiger Schritt für Qualität.', 'f'),
+    u('To support our customers we use remote FAT.', 'Zur Unterstützung unserer Kunden nutzen wir Remote FAT.', 'g'),
+    u('Unique sentence.', 'Einzigartiger Satz.', 'h'),
+  ];
+  const { units, duplicates, conflicts, divergentDropped, conflictSamples } = dedupeUnits(input);
+  assert.deepEqual(units.map((x) => x.sourceUrl), ['b', 'd', 'h']);
+  assert.equal(units.length + duplicates + conflicts, input.length, 'every occurrence is accounted for');
+  assert.equal(divergentDropped, 1);
+  assert.deepEqual(conflictSamples.map((s) => s.resolution), ['divergent-dropped', 'majority', 'similar-variants']);
+  assert.equal(conflictSamples[0].kept, null);
+  assert.equal(conflictSamples[1].variants.find((v) => v.from === 'b').count, 2);
 });

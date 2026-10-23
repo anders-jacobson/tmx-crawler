@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  compileTokenEquivalents,
   countWords,
   isUntranslated,
+  looksGarbled,
+  missingProtectedTokens,
   normalizeText,
   numberFingerprint,
   numbersMatch,
@@ -135,4 +138,29 @@ test('English titles kept inside a German sentence do not trip the language chec
     'Learn how to prime the circuit step by step before therapy', 'en', 'de',
     'Learn how to prime the circuit before starting therapy',
   ));
+});
+
+test('sub- and superscript digits count as digits', () => {
+  assert.deepEqual(numberFingerprint('cmH₂O and DO₂ at 10 m²'), ['10', '2']);
+  assert.ok(numbersMatch('3. Hydrogen Peroxide (vH2O2)', '3. Wasserstoffperoxid (VH₂O₂)'));
+  assert.ok(!numbersMatch('EU MDR 2017/745 certified', 'EU MDR 2017/45 zertifiziert'));
+  assert.ok(numbersMatch('They reduced their carbon footprint by 40%.', 'Sie verbesserten ihre CO₂-Bilanz um 40 %.'));
+  assert.ok(numbersMatch('PaO2/FiO2 < 80 mmHg', 'PaO₂/FiO₂ < 80 mmHg'));
+  assert.ok(!numbersMatch('Advanta V12 stent', 'Advanta V11 Stent'), 'model numbers still count');
+});
+
+test('looksGarbled flags pseudo-localised text, not names or loanwords', () => {
+  assert.ok(looksGarbled('Ŧĥę şŧūđy řęvęäľęđ ŧĥäŧ äľmőşŧ ĥäľƒ őƒ Ů.Ŝ. ĥőşpįŧäľş', 'de'));
+  assert.ok(!looksGarbled('Werfen Sie einen Blick über die Schulter von Carl-Fredrik Paléus.', 'de'));
+  assert.ok(!looksGarbled('Präzises, akkurates Strömungsmuster für Großgeräte.', 'de'));
+  assert.ok(!looksGarbled('Ŧĥę şŧūđy řęvęäľęđ ŧĥäŧ äľmőşŧ ĥäľƒ', 'pl'), 'languages without a letter table never trigger');
+  assert.ok(!looksGarbled('Ŧĥę', 'de'), 'too short to judge');
+});
+
+test('token equivalents are per target language and match whole words only', () => {
+  const eq = compileTokenEquivalents({ de: { OR: ['OP'], cssd: ['AEMP'] }, sv: { OR: ['Op'] } }, 'de-DE');
+  assert.deepEqual(missingProtectedTokens('Planning the operating room (OR)', 'Planung im OP-Saal', eq), []);
+  assert.deepEqual(missingProtectedTokens('Planning the operating room (OR)', 'Planung von Operationen', eq), ['OR']);
+  assert.deepEqual(missingProtectedTokens('Staff in the (CSSD)', 'Personal der AEMP', eq), []);
+  assert.deepEqual(missingProtectedTokens('Staff in the (CSSD)', 'Personal der AEMP', compileTokenEquivalents(null, 'de')), ['CSSD']);
 });

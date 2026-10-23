@@ -244,4 +244,10 @@ test('config validates the per-tag word minimums', async () => {
   const base = { source: { baseUrl: 'https://x.com/en/' }, target: { baseUrl: 'https://x.com/de/' } };
   assert.throws(() => resolveConfig(base, { alignment: { minWordsByTag: { h2: 0 } } }), /minWordsByTag/);
   assert.equal(resolveConfig(base, { alignment: { minWordsByTag: { h2: 1 } } }).alignment.minWordsByTag.h2, 1);
+  assert.throws(() => resolveConfig(base, { alignment: { tokenEquivalents: { de: { CSSD: 'AEMP' } } } }), /tokenEquivalents/);
+  assert.throws(() => resolveConfig(base, { alignment: { suppressPairs: [{ target: 'x' }] } }), /suppressPairs/);
+  assert.throws(() => resolveConfig(base, { alignment: { minVariantSimilarity: 2 } }), /minVariantSimilarity/);
+  assert.throws(() => resolveConfig(base, { alignment: { requireSameStructure: 'yes' } }), /requireSameStructure/);
+  const ok = resolveConfig(base, { alignment: { tokenEquivalents: { de: { CSSD: ['AEMP'] } }, suppressPairs: [{ source: 'a', target: 'b' }] } });
+  assert.equal(ok.alignment.requireSameStructure, true);
 });

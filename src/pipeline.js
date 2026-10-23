@@ -361,7 +361,9 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   // --- Merge, de-duplicate, write ------------------------------------------------------------
   pages.sort((a, b) => a.sourceUrl.localeCompare(b.sourceUrl));
   const allUnits = pages.flatMap((page) => page.units.slice().sort((a, b) => a.index - b.index));
-  const { units, duplicates, conflicts, conflictSamples } = dedupeUnits(allUnits);
+  const { units, duplicates, conflicts, divergentDropped, conflictSamples } = dedupeUnits(allUnits, {
+    minVariantSimilarity: alignment.minVariantSimilarity,
+  });
 
   const rejected = {};
   const samplesPerReason = output.rejectedSamplesPerReason ?? 50;
@@ -411,6 +413,7 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
       alignedBeforeDedup: allUnits.length,
       duplicatesRemoved: duplicates,
       conflictsRemoved: conflicts,
+      divergentSourcesDropped: divergentDropped,
       rejected,
     },
     tmx: {

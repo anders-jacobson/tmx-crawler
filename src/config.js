@@ -62,6 +62,14 @@ export const DEFAULT_CONFIG = Object.freeze({
     requireNumberMatch: true,
     requireProtectedTokens: true,
     checkTargetLanguage: true,
+    requireSameStructure: true, // drop a block's pairs when its tag sequence differs between languages
+    checkCharacters: true, // drop pseudo-localised / garbled text
+    // Localised forms of protected tokens per target language, e.g. { "de": { "CSSD": ["AEMP"] } }
+    tokenEquivalents: {},
+    // Known mis-pairings to leave out: [{ "source": "…", "target": "…", "note": "…" }]; omit target to drop any translation
+    suppressPairs: [],
+    // Same source, different translations: on a tie the first is kept only if the variants are this similar (0–1)
+    minVariantSimilarity: 0.4,
     allowTargetRedirects: false,
   },
   output: {
@@ -180,6 +188,25 @@ export function resolveConfig(...layers) {
     errors,
   );
   assert(Number.isInteger(alignment.lengthRatioMinWords) && alignment.lengthRatioMinWords >= 1, 'alignment.lengthRatioMinWords must be an integer >= 1', errors);
+  for (const key of ['requireNumberMatch', 'requireProtectedTokens', 'checkTargetLanguage', 'requireSameStructure', 'checkCharacters']) {
+    assert(typeof alignment[key] === 'boolean', `alignment.${key} must be true or false`, errors);
+  }
+  assert(
+    isPlainObject(alignment.tokenEquivalents)
+      && Object.values(alignment.tokenEquivalents).every((forLang) => isPlainObject(forLang)
+        && Object.values(forLang).every((forms) => Array.isArray(forms) && forms.every((f) => typeof f === 'string' && f.trim()))),
+    'alignment.tokenEquivalents must look like { "de": { "CSSD": ["AEMP"] } }',
+    errors,
+  );
+  assert(
+    Array.isArray(alignment.suppressPairs) && alignment.suppressPairs.every((entry) => isPlainObject(entry)
+      && typeof entry.source === 'string' && entry.source.trim()
+      && (entry.target === undefined || typeof entry.target === 'string')),
+    'alignment.suppressPairs must be a list of { "source": "…", "target": "…" } (target optional)',
+    errors,
+  );
+  assert(Number.isFinite(alignment.minVariantSimilarity) && alignment.minVariantSimilarity >= 0 && alignment.minVariantSimilarity <= 1,
+    'alignment.minVariantSimilarity must be between 0 and 1', errors);
 
   const identity = extraction.pageIdentity;
   if (identity !== null) {

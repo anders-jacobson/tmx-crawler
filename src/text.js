@@ -29,14 +29,20 @@ export function countWords(value) {
 // Digits grouped by locale-specific separators: 1,000.50 / 1.000,50 / 1 000 (NBSP / narrow NBSP) / 1'000.
 const NUMBER_PATTERN = /\d+(?:[.,'\u00A0\u202F]\d+)*/gu;
 
+// A single digit right after C, H, N or O is a chemical-formula index (CO₂, H2O2, PaO2, cmH2O),
+// not a quantity – "carbon footprint" is legitimately translated as "CO₂-Bilanz".
+const FORMULA_DIGIT = /(?<=[CHNO])\d(?!\d)/g;
+
 /**
  * Locale-agnostic fingerprint of the numbers in a segment: separators are stripped so that
- * "1,000.5" (en) and "1.000,5" (de) compare equal. Returned sorted and de-duplicated.
+ * "1,000.5" (en) and "1.000,5" (de) compare equal. Sub- and superscript digits count as plain
+ * digits (NFKC) and chemical-formula indices are ignored, so "H₂O" and "H2O" match.
+ * Returned sorted and de-duplicated.
  * @param {string} value
  * @returns {string[]}
  */
 export function numberFingerprint(value) {
-  const matches = (value ?? '').match(NUMBER_PATTERN) ?? [];
+  const matches = (value ?? '').normalize('NFKC').replace(FORMULA_DIGIT, '').match(NUMBER_PATTERN) ?? [];
   return [...new Set(matches.map((m) => m.replace(/\D/g, '')))].sort();
 }
 
@@ -122,13 +128,81 @@ export function protectedTokens(value) {
   return [...tokens];
 }
 
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
- * Protected tokens of `source` that do not occur (case-insensitively) in `target`.
+ * Accepted target-language forms of protected tokens – localised acronyms such as
+ * CSSD → AEMP or AI → KI. Config shape: { "<target lang>": { "<token>": ["<form>", …] } };
+ * an exact language entry ("de-CH") wins over its base language ("de"). Token keys are
+ * case-insensitive; each form must appear in the target as a whole word.
+ * @returns {Map<string, RegExp[]>}  lower-cased token → whole-word matchers
+ */
+export function compileTokenEquivalents(byLanguage, targetLang) {
+  const compiled = new Map();
+  if (!byLanguage || typeof byLanguage !== 'object') return compiled;
+  const lang = String(targetLang ?? '').toLowerCase();
+  const entries = Object.entries(byLanguage);
+  const forLang = entries.find(([key]) => key.toLowerCase() === lang)?.[1]
+    ?? entries.find(([key]) => key.toLowerCase() === lang.split('-')[0])?.[1];
+  for (const [token, forms] of Object.entries(forLang ?? {})) {
+    const matchers = (Array.isArray(forms) ? forms : [forms])
+      .filter((form) => typeof form === 'string' && form.trim())
+      .map((form) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(form.trim())}(?![\\p{L}\\p{N}])`, 'u'));
+    compiled.set(token.toLowerCase(), matchers);
+  }
+  return compiled;
+}
+
+/**
+ * Protected tokens of `source` that do not occur (case-insensitively) in `target`, nor in one of
+ * their accepted equivalent forms.
+ * @param {Map<string, RegExp[]>} [equivalents]  from compileTokenEquivalents
  * @returns {string[]}
  */
-export function missingProtectedTokens(source, target) {
-  const haystack = (target ?? '').toLowerCase();
-  return protectedTokens(source).filter((token) => !haystack.includes(token.toLowerCase()));
+export function missingProtectedTokens(source, target, equivalents) {
+  const text = target ?? '';
+  const haystack = text.toLowerCase();
+  return protectedTokens(source).filter((token) => {
+    if (haystack.includes(token.toLowerCase())) return false;
+    return !(equivalents?.get(token.toLowerCase()) ?? []).some((re) => re.test(text));
+  });
+}
+
+// --- Character plausibility ------------------------------------------------------------------
+// Letters beyond A–Z that each language uses. Text where most letters fall outside this set is
+// not real text in that language – typically pseudo-localised placeholder content ("Å ŉęŵ şŧūđy")
+// that was published by mistake.
+const LANGUAGE_LETTERS = {
+  en: '',
+  de: 'äöüßÄÖÜẞ',
+  sv: 'åäöéÅÄÖÉ',
+  da: 'æøåéÆØÅÉ',
+  nb: 'æøåéÆØÅÉ',
+  no: 'æøåéÆØÅÉ',
+  fi: 'äöåÄÖÅ',
+  nl: 'áéíóúàèëïöüÁÉÍÓÚÀÈËÏÖÜ',
+  fr: 'àâæçéèêëîïôœùûüÿÀÂÆÇÉÈÊËÎÏÔŒÙÛÜŸ',
+  es: 'áéíñóúüÁÉÍÑÓÚÜ',
+  it: 'àèéìíîòóùúÀÈÉÌÍÎÒÓÙÚ',
+  pt: 'áâãàçéêíóôõúÁÂÃÀÇÉÊÍÓÔÕÚ',
+};
+const LANGUAGE_LETTER_SETS = Object.fromEntries(Object.entries(LANGUAGE_LETTERS).map(([lang, letters]) => [lang, new Set(letters)]));
+
+/**
+ * True when at least `minLetters` letters are present and more than `maxShare` of them are
+ * foreign to `lang`. Languages without a letter table (e.g. Polish, Japanese) never trigger.
+ */
+export function looksGarbled(text, lang, { minLetters = 10, maxShare = 0.25 } = {}) {
+  const allowed = LANGUAGE_LETTER_SETS[String(lang ?? '').toLowerCase().split('-')[0]];
+  if (!allowed) return false;
+  let letters = 0;
+  let foreign = 0;
+  for (const ch of (text ?? '').normalize('NFC')) {
+    if (!/\p{L}/u.test(ch)) continue;
+    letters += 1;
+    if (!/[A-Za-z]/.test(ch) && !allowed.has(ch)) foreign += 1;
+  }
+  return letters >= minLetters && foreign / letters > maxShare;
 }
 
 // --- Language plausibility -------------------------------------------------------------------

@@ -114,7 +114,7 @@ function summaryRows(s) {
     ['Discovery', `${s.discovery.mode}, ${fmtInt(s.discovery.urlsQueued)} URL(s) queued, ${fmtInt(s.requests)} HTTP request(s)`],
     ['Pages crawled', `${fmtInt(p.sourcePagesFetched)} source / ${fmtInt(p.targetPagesFetched)} target`],
     ['Page pairs', `${fmtInt(p.pagePairsAligned)} aligned, ${fmtInt(p.pagesSkipped)} skipped, ${fmtInt(p.pagesFailed)} failed`],
-    ['Translation units', `${fmtInt(s.tmx.translationUnits)} <tu> written (${fmtInt(s.segments.duplicatesRemoved)} duplicates, ${fmtInt(s.segments.conflictsRemoved)} conflicts removed)`],
+    ['Translation units', `${fmtInt(s.tmx.translationUnits)} <tu> written (${fmtInt(s.segments.duplicatesRemoved)} duplicates, ${fmtInt(s.segments.conflictsRemoved)} conflicting variants removed, ${fmtInt(s.segments.divergentSourcesDropped ?? 0)} ambiguous sources left out)`],
     ['Output file', `${s.tmx.file} (${fmtBytes(s.tmx.bytes)})`],
     ['DeepL size limit', `${s.tmx.withinUploadLimit ? 'OK' : 'EXCEEDED'} – ${share}% of ${fmtBytes(s.tmx.maxBytes)}`],
     ['Verification', v.ok ? `PASSED (well-formed XML, TMX 1.4 structure, ${fmtInt(v.units)} <tu>)` : `FAILED – ${v.problems.join('; ')}`],

@@ -75,7 +75,10 @@
       "a.Link",
       ".Tabs-link",
       ".DownloadList-link",
-      ".FormSubmitButton"
+      ".FormSubmitButton",
+      ".Document",
+      "[id^=\"accordionDocsPanel\"]",
+      "h2.Accordion-heading:has([id^=\"accordionDocsHeader\"])"
     ],
     "checkHtmlLang": true
   },
@@ -96,7 +99,77 @@
     "requireNumberMatch": true,
     "allowTargetRedirects": false,
     "requireProtectedTokens": true,
-    "checkTargetLanguage": true
+    "checkTargetLanguage": true,
+    "requireSameStructure": true,
+    "checkCharacters": true,
+    "minVariantSimilarity": 0.4,
+    "tokenEquivalents": {
+      "de": {
+        "CSSD": ["AEMP", "AEMPs", "ZSVA"],
+        "AI": ["KI"],
+        "OR": ["OP", "OPs"],
+        "ICU": ["ITS", "IPS"],
+        "GDPR": ["DSGVO"],
+        "MAP": ["MAD"],
+        "CI": ["HI"],
+        "CO": ["HZV"],
+        "CVP": ["ZVD"],
+        "HR": ["HF"],
+        "PR": ["PF"],
+        "NGO": ["NRO"],
+        "LTSF": ["NTSF", "NTDF"],
+        "CABG": ["Bypass", "ACVB"],
+        "CAD": ["KHK"],
+        "eLearnings": ["E-Learning", "E-Learnings"]
+      }
+    },
+    "suppressPairs": [
+      {
+        "source": "ISOPRIME isolator",
+        "target": "Solutions for Sterility Testing",
+        "note": "German page: headings in a different order and in English – /products/isoprime-isolators/"
+      },
+      {
+        "source": "Solutions for Sterility Testing",
+        "target": "ISOPRIME isolator",
+        "note": "German page: headings in a different order and in English – /products/isoprime-isolators/"
+      },
+      {
+        "source": "Isolators to secure contamination prevention",
+        "target": "Optimized for common aseptic applications",
+        "note": "German page: English heading in this position – /products/isoprime-isolators/"
+      },
+      {
+        "source": "Wash racks for bioreactors",
+        "target": "Sicherer, ergonomischer Transport und Lagerung",
+        "note": "German page: headings in a different order – /products/loading-equipment-for-getinge-lancer-ultima-laboratory-washers/"
+      },
+      {
+        "source": "Safe, ergonomic transport and storage",
+        "target": "Spezieller Einsatz für Reinigungswagen",
+        "note": "German page: headings in a different order – /products/loading-equipment-for-getinge-lancer-ultima-laboratory-washers/"
+      },
+      {
+        "source": "ED-Flow",
+        "target": "Räumliche Barriere zwischen unreiner und reiner Seite.",
+        "note": "German page: different content in this position – /products/ed-flow/"
+      },
+      {
+        "source": "A culture of innovation focused on the surgeon and dedicated to patients",
+        "target": "Autofluoreszenz und Fluoreszenzbildgebung",
+        "note": "German page: different content in this position – /products-and-solutions/operating-room/or-equipment/fluorescence-imaging/"
+      },
+      {
+        "source": "No two breaths are the same",
+        "target": "NAVA: Die stille Revolution in der Intensivbeatmung",
+        "note": "German page: different heading in this position – /insights/updates/healthcare/nava--the-silent-revolution-in-intensive-care-ventilation/"
+      },
+      {
+        "source": "Challenges in measuring transpulmonary pressure",
+        "target": "Lungenbelastung reduzieren und personalisiert beatmen",
+        "note": "German page: different heading in this position – /insights/updates/healthcare/transpulmonary-pressure-monitoring-made-easy/"
+      }
+    ]
   },
   "output": {
     "file": "output/getinge-en-de.tmx",
