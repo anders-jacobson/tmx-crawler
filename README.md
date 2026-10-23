@@ -140,6 +140,8 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `extraction.extraNoiseSelectors` | `[]` | Site-specific selectors to strip, added to the built-in list |
 | `alignment.mode` | `strict` | `strict`, `path` or `sequence` |
 | `alignment.minWords` / `maxWords` | `4` / `80` | Segment length filter |
+| `alignment.minWordsByTag` | `{}` | Per-element minimum, e.g. `{ "h2": 1 }` keeps short headings (Getinge: h1–h4 = 1) |
+| `alignment.lengthRatioMinWords` | `4` | Length-ratio check only from this many words (ratios are meaningless for "FAQ") |
 | `alignment.minLengthRatio` / `maxLengthRatio` | `0.5` / `2.5` | Target/source character ratio |
 | `alignment.requireNumberMatch` | `true` | Reject pairs whose numbers differ |
 | `alignment.requireProtectedTokens` | `true` | Reject pairs where brand/model names or `(ACRONYMS)` are missing in the target |
@@ -158,7 +160,18 @@ slider navigation and modal dialogs, plus two things measured to cause wrong pai
 related-article and article-grid teaser cards (`.ColorTeaser`, `.Article-teaser`; their text is
 aligned from the article pages themselves) and product listings – the product list component and individual product cards
 (`.ProductList`, `.ProductList-item`), whose content differs per market. Product pages themselves
-are still crawled and aligned. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
+are still crawled and aligned.
+
+Buttons and calls to action are excluded **by their markup, not their length**: `.CallToAction`
+(CTA containers, "Read more about …" lines on cards, request forms), `.Button`, `a.Link`, tab
+labels, download links and form buttons. Headings (h1–h4) are kept **regardless of length**, so
+short terminology such as "Transpulmonary thermodilution" → "Transpulmonale Thermodilution"
+enters the TM; accordion titles survive because only CTA classes are removed, never every
+`<button>`. Measured on 17 real page pairs: 73 additional heading pairs, all correct. Two things to
+know: a single-word heading may carry a context-specific choice (the section title "Insights" is
+"News & Events" in German), and the same heading translated differently on two pages shows up in
+the report's `conflicts` list – set a heading minimum of 2 words if you prefer to skip one-word
+headings. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
 Market-specific pages such as the homepage share only some blocks with `/int/`; anything that is
 not the same block in both languages is ignored.
 

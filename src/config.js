@@ -57,6 +57,8 @@ export const DEFAULT_CONFIG = Object.freeze({
     maxWords: 80,
     minLengthRatio: 0.5,
     maxLengthRatio: 2.5,
+    minWordsByTag: {}, // e.g. { "h1": 1, "h2": 1, "h3": 1 } to keep short headings
+    lengthRatioMinWords: 4,
     requireNumberMatch: true,
     requireProtectedTokens: true,
     checkTargetLanguage: true,
@@ -171,6 +173,13 @@ export function resolveConfig(...layers) {
   assert(Number.isInteger(alignment.minWords) && alignment.minWords >= 1, 'alignment.minWords must be >= 1', errors);
   assert(Number.isInteger(alignment.maxWords) && alignment.maxWords >= alignment.minWords, 'alignment.maxWords must be >= minWords', errors);
   assert(alignment.minLengthRatio > 0 && alignment.maxLengthRatio > alignment.minLengthRatio, 'alignment length ratios are invalid', errors);
+  assert(
+    alignment.minWordsByTag !== null && typeof alignment.minWordsByTag === 'object' && !Array.isArray(alignment.minWordsByTag)
+      && Object.values(alignment.minWordsByTag).every((n) => Number.isInteger(n) && n >= 1),
+    'alignment.minWordsByTag must map tag names to integers >= 1',
+    errors,
+  );
+  assert(Number.isInteger(alignment.lengthRatioMinWords) && alignment.lengthRatioMinWords >= 1, 'alignment.lengthRatioMinWords must be an integer >= 1', errors);
 
   const identity = extraction.pageIdentity;
   if (identity !== null) {

@@ -33,6 +33,9 @@ export const ALIGNMENT_MODES = Object.freeze(['strict', 'path', 'sequence']);
  * @param {number} [options.maxWords=80]
  * @param {number} [options.minLengthRatio=0.5]   target chars / source chars
  * @param {number} [options.maxLengthRatio=2.5]
+ * @param {Record<string, number>} [options.minWordsByTag]  per-tag minimum, e.g. { h2: 1 } keeps short headings
+ * @param {number} [options.lengthRatioMinWords=4]  apply the length-ratio check only from this many source
+ *                                                  words up – character ratios are meaningless for "FAQ"
  * @param {boolean} [options.requireNumberMatch=true]
  * @param {boolean} [options.requireProtectedTokens=true]  brand/model tokens must carry over
  * @param {boolean} [options.checkTargetLanguage=true]     reject targets that read as the source language
@@ -45,6 +48,8 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   maxWords = 80,
   minLengthRatio = 0.5,
   maxLengthRatio = 2.5,
+  minWordsByTag = {},
+  lengthRatioMinWords = 4,
   requireNumberMatch = true,
   requireProtectedTokens = true,
   checkTargetLanguage = true,
@@ -90,7 +95,8 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
   const pairs = [];
   for (const [src, tgt] of candidates) {
     const words = countWords(src.text);
-    if (words < minWords || words > maxWords) {
+    const min = minWordsByTag?.[src.tag] ?? minWords;
+    if (words < min || words > maxWords) {
       reject('word-range', src, tgt, `${words} words`);
       continue;
     }
@@ -103,7 +109,7 @@ export function alignBlocks(sourceBlocks, targetBlocks, {
       continue;
     }
     const ratio = tgt.text.length / src.text.length;
-    if (ratio < minLengthRatio || ratio > maxLengthRatio) {
+    if (words >= lengthRatioMinWords && (ratio < minLengthRatio || ratio > maxLengthRatio)) {
       reject('length-ratio', src, tgt, `ratio ${ratio.toFixed(2)}`);
       continue;
     }

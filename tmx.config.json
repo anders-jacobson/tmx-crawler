@@ -31,6 +31,7 @@
   },
   "extraction": {
     "contentRoot": ".Banner-main, main#Main",
+    "blockSelector": "h1, h2, h3, h4, p, li",
     "anchors": [
       {
         "selector": "[id^=\"block-\"]"
@@ -67,7 +68,13 @@
       ".ColorTeaser",
       ".ProductList",
       ".ProductList-item",
-      ".Article-teaser"
+      ".Article-teaser",
+      ".CallToAction",
+      ".Button",
+      "a.Link",
+      ".Tabs-link",
+      ".DownloadList-link",
+      ".FormSubmitButton"
     ],
     "checkHtmlLang": true
   },
@@ -76,8 +83,15 @@
     "mode": "strict",
     "minWords": 4,
     "maxWords": 80,
+    "minWordsByTag": {
+      "h1": 1,
+      "h2": 1,
+      "h3": 1,
+      "h4": 1
+    },
     "minLengthRatio": 0.5,
     "maxLengthRatio": 2.5,
+    "lengthRatioMinWords": 4,
     "requireNumberMatch": true,
     "allowTargetRedirects": false,
     "requireProtectedTokens": true,

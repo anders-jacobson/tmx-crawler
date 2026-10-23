@@ -200,3 +200,48 @@ test('rejected pairs carry the reason and a readable detail', () => {
   ]);
   assert.equal(rejectedPairs[2].target, 'Beatmungsgerät Servo-n für Neugeborene');
 });
+
+test('short headings are kept via minWordsByTag; ratio check only applies from 4 words', () => {
+  const block = (tag, text) => ({ index: 0, tag, scope: 'b', path: `${tag}[0]`, strictPath: `${tag}[0:1]`, text });
+  const run = (tag, en, de) => alignBlocks([block(tag, en)], [block(tag, de)], {
+    sourceLang: 'en', targetLang: 'de', minWordsByTag: { h2: 1, h3: 1 }, lengthRatioMinWords: 4,
+  });
+  assert.equal(run('h2', 'Mobility', 'Mobilität').pairs.length, 1);
+  assert.equal(run('h2', 'FAQ', 'Häufig gestellte Fragen').pairs.length, 1, 'no ratio check for a 1-word heading');
+  assert.equal(run('h3', 'Hybrid Operating Room', 'Hybrid-OP').pairs.length, 1);
+  assert.equal(run('h2', 'Downloads', 'Downloads').stats.rejected.untranslated, 1, 'identical headings are still useless');
+  assert.equal(run('p', 'Read more', 'Mehr lesen').stats.rejected['word-range'], 1, 'short paragraphs keep the 4-word minimum');
+  assert.equal(run('p', 'A short sentence with five words.', 'Dies ist ein sehr viel längerer deutscher Satz, der eindeutig nicht passt und viel zu lang ist.')
+    .stats.rejected['length-ratio'], 1, 'ratio still applies to normal sentences');
+});
+
+test('CTA markup is removed by class while headings – even inside accordion buttons or cards – stay', () => {
+  const html = `<main id="Main">
+    <div id="block-1">
+      <h2><button class="Accordion-header">Marketing Sales - Pocket Guides</button></h2>
+      <a class="Card" href="/x/"><h3>Patient Flow Management</h3><p>Ensure complete overview of every patient.</p>
+        <p class="CallToAction">Read more about INSIGHT</p></a>
+      <div class="CallToAction"><a class="Button Button--blue" href="/y/">Discover Aquadis Endo 110</a></div>
+      <ul><li><a class="Link Link--icon Link--arrow" href="/q/">Request a quote</a></li></ul>
+      <h4>Primary email</h4>
+    </div></main>`;
+  const { blocks } = extractPage(html, {
+    contentRoot: 'main#Main',
+    blockSelector: 'h1, h2, h3, h4, p, li',
+    anchors: [{ selector: '[id^="block-"]' }],
+    noiseSelectors: ['.CallToAction', '.Button', 'a.Link', '.Tabs-link', '.DownloadList-link', '.FormSubmitButton'],
+  });
+  assert.deepEqual(blocks.map((b) => `${b.tag}: ${b.text}`), [
+    'h2: Marketing Sales - Pocket Guides',
+    'h3: Patient Flow Management',
+    'p: Ensure complete overview of every patient.',
+    'h4: Primary email',
+  ]);
+});
+
+test('config validates the per-tag word minimums', async () => {
+  const { resolveConfig } = await import('../src/config.js');
+  const base = { source: { baseUrl: 'https://x.com/en/' }, target: { baseUrl: 'https://x.com/de/' } };
+  assert.throws(() => resolveConfig(base, { alignment: { minWordsByTag: { h2: 0 } } }), /minWordsByTag/);
+  assert.equal(resolveConfig(base, { alignment: { minWordsByTag: { h2: 1 } } }).alignment.minWordsByTag.h2, 1);
+});
