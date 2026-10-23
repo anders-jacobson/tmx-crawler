@@ -101,3 +101,27 @@ test('parseSitemapXml reads url sets with hreflang alternates and sitemap indexe
 
   assert.equal(parseSitemapXml('<html><body>nope</body></html>').type, 'unknown');
 });
+
+test('RateLimiter keeps the interval even when the event loop is blocked', async () => {
+  const limiter = new RateLimiter(30);
+  const starts = [];
+  const waiters = Array.from({ length: 4 }, () => limiter.wait().then(() => starts.push(Date.now())));
+  // Block the event loop for longer than one interval while timers are pending.
+  const until = Date.now() + 80;
+  while (Date.now() < until) { /* busy */ }
+  await Promise.all(waiters);
+  for (let i = 1; i < starts.length; i += 1) {
+    assert.ok(starts[i] - starts[i - 1] >= 30, `gap ${starts[i] - starts[i - 1]} ms between requests ${i} and ${i + 1}`);
+  }
+});
+
+test('RateLimiter: an aborted waiter does not block the queue', async () => {
+  const limiter = new RateLimiter(20);
+  await limiter.wait();
+  const controller = new AbortController();
+  const aborted = limiter.wait(controller.signal);
+  const next = limiter.wait();
+  controller.abort();
+  await assert.rejects(aborted, { name: 'AbortError' });
+  await next; // resolves instead of hanging
+});

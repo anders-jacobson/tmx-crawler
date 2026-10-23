@@ -20,12 +20,15 @@ export class HttpError extends Error {
 }
 
 /**
- * Guarantees at least `intervalMs` between the *start* of two requests, no matter how many
- * workers run concurrently. Slots are reserved synchronously, so callers queue up fairly.
+ * Guarantees at least `intervalMs` between the *actual* start of two requests, no matter how many
+ * workers run concurrently. Callers are served strictly one after another (FIFO), and each one
+ * waits relative to when the previous caller was really released - not relative to a pre-computed
+ * slot - so late timers on a busy machine can never squeeze two requests closer together.
  */
 export class RateLimiter {
   #intervalMs;
-  #nextSlot = 0;
+  #lastRelease = -Infinity;
+  #queue = Promise.resolve();
 
   constructor(intervalMs = 0) {
     this.#intervalMs = Math.max(0, Number(intervalMs) || 0);
@@ -40,12 +43,20 @@ export class RateLimiter {
     if (Number.isFinite(ms) && ms > this.#intervalMs) this.#intervalMs = ms;
   }
 
-  async wait(signal) {
-    const now = Date.now();
-    const slot = Math.max(now, this.#nextSlot);
-    this.#nextSlot = slot + this.#intervalMs;
-    const delay = slot - now;
-    if (delay > 0) await sleep(delay, undefined, { signal });
+  /** Resolves when the caller may start its request; rejects if `signal` aborts while waiting. */
+  wait(signal) {
+    const turn = this.#queue.then(async () => {
+      signal?.throwIfAborted();
+      // Loop: a timer may fire marginally early relative to Date.now().
+      for (let delay = this.#lastRelease + this.#intervalMs - Date.now(); delay > 0;
+        delay = this.#lastRelease + this.#intervalMs - Date.now()) {
+        await sleep(delay, undefined, { signal });
+      }
+      this.#lastRelease = Date.now();
+    });
+    // An aborted waiter must not block the ones queued behind it.
+    this.#queue = turn.catch(() => {});
+    return turn;
   }
 }
 
