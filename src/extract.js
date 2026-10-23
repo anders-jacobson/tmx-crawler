@@ -104,6 +104,48 @@ function isAncestor(ancestor, node) {
 }
 
 /**
+ * @typedef {object} AnchorDefinition
+ * @property {string} selector        CSS selector of elements that identify content across languages
+ * @property {string} [attribute='id'] attribute holding the identifier
+ * @property {string} [pattern]       regular expression; its first capture group (or whole match)
+ *                                    is the language-independent part, e.g. "(\\d+)$" turns
+ *                                    "pulsiocare-1851545" and "pulsiocare-de-1851545" into 1851545
+ */
+
+/**
+ * Normalises anchor options: an explicit `anchors` list wins, otherwise the legacy single
+ * `anchorSelector`/`anchorAttribute` pair is used. Patterns are compiled once.
+ */
+export function compileAnchors(anchors, anchorSelector, anchorAttribute = 'id') {
+  const defs = Array.isArray(anchors) && anchors.length
+    ? anchors
+    : anchorSelector ? [{ selector: anchorSelector, attribute: anchorAttribute }] : [];
+  return defs.map((def, i) => {
+    if (!def || typeof def.selector !== 'string' || !def.selector.trim()) {
+      throw new Error(`anchors[${i}].selector must be a non-empty CSS selector`);
+    }
+    let pattern = null;
+    if (def.pattern) {
+      try {
+        pattern = new RegExp(def.pattern);
+      } catch (error) {
+        throw new Error(`anchors[${i}].pattern is not a valid regular expression: ${error.message}`, { cause: error });
+      }
+    }
+    return { selector: def.selector, attribute: def.attribute ?? 'id', pattern };
+  });
+}
+
+function anchorKeyFor(value, def) {
+  if (!value) return null;
+  if (!def.pattern) return value;
+  const match = def.pattern.exec(value);
+  if (!match) return null;
+  // Namespaced by attribute, so ids from different anchor types can never collide.
+  return `${def.attribute}=${match[1] ?? match[0]}`;
+}
+
+/**
  * @typedef {object} Block
  * @property {number} index      order of appearance on the page
  * @property {string} tag
@@ -120,8 +162,11 @@ function isAncestor(ancestor, node) {
  * @param {string} [options.contentRoot]        CSS selector of the content container(s). Every outermost
  *                                              match is used, in document order (e.g. a hero banner that
  *                                              sits outside <main> plus <main>); falls back to <body>
- * @param {string|null} [options.anchorSelector] CSS selector of CMS content blocks used as alignment anchors
- * @param {string} [options.anchorAttribute='id'] attribute whose value identifies an anchor across languages
+ * @param {AnchorDefinition[]} [options.anchors] elements whose identifier is shared between language
+ *                                              versions (CMS blocks, list items); the innermost anchor
+ *                                              around a text block becomes its scope
+ * @param {string|null} [options.anchorSelector] legacy single-anchor form of `anchors`
+ * @param {string} [options.anchorAttribute='id']
  * @param {string} [options.blockSelector]
  * @param {string[]} [options.noiseSelectors]
  * @param {string[]} [options.dynamicSelectors]
@@ -132,6 +177,7 @@ function isAncestor(ancestor, node) {
 export function extractPage(html, {
   baseUrl,
   contentRoot = 'main, [role="main"]',
+  anchors = null,
   anchorSelector = null,
   anchorAttribute = 'id',
   blockSelector = DEFAULT_BLOCK_SELECTOR,
@@ -177,16 +223,19 @@ export function extractPage(html, {
   let roots = candidates.filter((node) => !candidates.some((other) => other !== node && isAncestor(other, node)));
   if (!roots.length) roots = $('body').toArray();
 
-  // --- Anchors: CMS block ids shared between language versions ------------------------------
+  // --- Anchors: identifiers shared between language versions ---------------------------------
+  // The first matching definition wins for an element; a key seen twice on one page (the same
+  // block or product used twice) gets an occurrence suffix so it stays unique.
   const anchorKeys = new Map();
-  if (anchorSelector) {
-    const occurrences = new Map();
-    safeSelect($, null, anchorSelector, onInvalidSelector).each((_, el) => {
-      const value = $(el).attr(anchorAttribute);
-      if (!value) return;
-      const n = (occurrences.get(value) ?? 0) + 1;
-      occurrences.set(value, n);
-      anchorKeys.set(el, n === 1 ? value : `${value}#${n}`); // same block used twice on a page
+  const occurrences = new Map();
+  for (const def of compileAnchors(anchors, anchorSelector, anchorAttribute)) {
+    safeSelect($, null, def.selector, onInvalidSelector).each((_, el) => {
+      if (anchorKeys.has(el)) return;
+      const key = anchorKeyFor($(el).attr(def.attribute), def);
+      if (!key) return;
+      const n = (occurrences.get(key) ?? 0) + 1;
+      occurrences.set(key, n);
+      anchorKeys.set(el, n === 1 ? key : `${key}#${n}`);
     });
   }
 

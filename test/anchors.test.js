@@ -122,3 +122,55 @@ test('collapsed accordion panels (hidden attribute) are kept as page content', (
   const { blocks } = extractPage(html, { anchorSelector: '[id^="block-"]' });
   assert.deepEqual(blocks.map((b) => b.text), ['Clinical evidence summary for the monitoring technology.']);
 });
+
+test('list items are paired by content id, not by position', () => {
+  const list = (lang, items) => `<html lang="${lang}"><body><main id="Main"><div id="block-36452" class="ProductList">
+    ${items.map(([id, name]) => `<a class="ProductList-item" href="/x/" data-item-id="${id}"><h3>${name}</h3></a>`).join('\n')}
+  </div></main></body></html>`;
+  // German list: different order, one market-specific product, slug part of the id localised.
+  const en = list('en', [
+    ['maquet-ezea-surgical-light-5001', 'Maquet Ezea Surgical Light system'],
+    ['atrium-oasis-dry-suction-5002', 'Atrium Oasis Dry Suction Chest Drain'],
+    ['vasoview-hemopro-5003', 'Vasoview Hemopro Endoscopic Vessel Harvesting'],
+  ]);
+  const de = list('de', [
+    ['atrium-oasis-trockenabsaugung-5002', 'Atrium Oasis Thoraxdrainage mit Trockenabsaugung'],
+    ['beatmungsgeraet-servo-u-9999', 'Beatmungsgerät Servo-u für Erwachsene'],
+    ['vasoview-hemopro-5003', 'Vasoview Hemopro Endoskopisches Gefäßentnahmesystem'],
+  ]);
+  const options = {
+    contentRoot: 'main#Main',
+    anchors: [
+      { selector: '[id^="block-"]' },
+      { selector: '[data-item-id]', attribute: 'data-item-id', pattern: '(\\d+)$' },
+    ],
+  };
+  const enBlocks = extractPage(en, options).blocks;
+  assert.deepEqual(enBlocks.map((b) => b.scope), ['data-item-id=5001', 'data-item-id=5002', 'data-item-id=5003']);
+
+  const { pairs, stats } = alignBlocks(enBlocks, extractPage(de, options).blocks, { sourceLang: 'en', targetLang: 'de' });
+  assert.deepEqual(pairs.map((p) => [p.source, p.target]), [
+    ['Atrium Oasis Dry Suction Chest Drain', 'Atrium Oasis Thoraxdrainage mit Trockenabsaugung'],
+    ['Vasoview Hemopro Endoscopic Vessel Harvesting', 'Vasoview Hemopro Endoskopisches Gefäßentnahmesystem'],
+  ]);
+  assert.equal(stats.rejected['no-structural-match'], 1, 'the product missing from the German list is not paired');
+});
+
+test('anchor definitions: first match wins, pattern keys are namespaced, invalid patterns are reported', async () => {
+  const html = `<main><div id="itm1_4460" data-item-id="or-4460"><p>Same content id via two attributes here.</p></div></main>`;
+  const viaData = extractPage(html, { anchors: [
+    { selector: '[data-item-id]', attribute: 'data-item-id', pattern: '(\\d+)$' },
+    { selector: '[id^="itm"]', attribute: 'id', pattern: '(\\d+)$' },
+  ] }).blocks[0].scope;
+  assert.equal(viaData, 'data-item-id=4460');
+
+  const { resolveConfig } = await import('../src/config.js');
+  assert.throws(
+    () => resolveConfig({
+      source: { baseUrl: 'https://x.com/en/' },
+      target: { baseUrl: 'https://x.com/de/' },
+      extraction: { anchors: [{ selector: '[data-id]', pattern: '(' }] },
+    }),
+    /extraction\.anchors\[0\]\.pattern is not a valid regular expression/,
+  );
+});

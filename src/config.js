@@ -3,7 +3,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { DEFAULT_BLOCK_SELECTOR, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_NOISE_SELECTORS } from './extract.js';
+import { DEFAULT_BLOCK_SELECTOR, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_NOISE_SELECTORS, compileAnchors } from './extract.js';
 import { ALIGNMENT_MODES } from './align.js';
 import { DEEPL_MAX_TMX_BYTES, TMX_SEGTYPES } from './tmx-writer.js';
 import { normalizeBaseUrl, normalizeUrl } from './url-utils.js';
@@ -36,7 +36,10 @@ export const DEFAULT_CONFIG = Object.freeze({
   },
   extraction: {
     contentRoot: 'main, [role="main"]',
-    anchorSelector: null, // e.g. '[id^="block-"]' for CMS block ids shared across languages
+    // Elements whose identifier is shared between language versions, innermost wins, e.g.
+    // [{ "selector": "[id^=\"block-\"]" }, { "selector": "[data-item-id]", "attribute": "data-item-id", "pattern": "(\\d+)$" }]
+    anchors: null,
+    anchorSelector: null, // legacy single-anchor form
     anchorAttribute: 'id',
     blockSelector: DEFAULT_BLOCK_SELECTOR,
     noiseSelectors: DEFAULT_NOISE_SELECTORS,
@@ -149,6 +152,15 @@ export function resolveConfig(...layers) {
   assert(Number.isInteger(http.retries) && http.retries >= 0 && http.retries <= 10, 'http.retries must be 0–10', errors);
 
   extraction.noiseSelectors = [...extraction.noiseSelectors, ...(extraction.extraNoiseSelectors ?? [])];
+  if (extraction.anchors !== null && !Array.isArray(extraction.anchors)) {
+    errors.push('extraction.anchors must be an array of { selector, attribute?, pattern? }');
+  } else {
+    try {
+      compileAnchors(extraction.anchors, extraction.anchorSelector, extraction.anchorAttribute);
+    } catch (error) {
+      errors.push(`extraction.${error.message}`);
+    }
+  }
 
   assert(ALIGNMENT_MODES.includes(alignment.mode), `alignment.mode must be one of ${ALIGNMENT_MODES.join(', ')}`, errors);
   assert(['auto', 'hreflang', 'path'].includes(alignment.mapping), 'alignment.mapping must be auto, hreflang or path', errors);

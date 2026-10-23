@@ -62,6 +62,7 @@ export async function runPipeline(config, { logger = silentLogger, signal, fetch
   const invalidSelectors = new Set();
   const extractOptions = {
     contentRoot: extraction.contentRoot,
+    anchors: extraction.anchors,
     anchorSelector: extraction.anchorSelector,
     anchorAttribute: extraction.anchorAttribute,
     blockSelector: extraction.blockSelector,

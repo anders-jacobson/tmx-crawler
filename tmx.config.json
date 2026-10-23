@@ -16,7 +16,8 @@
       "/search/?$",
       "/link/[0-9a-f]+\\.aspx",
       "/company/",
-      "/news/"
+      "/news/",
+      "/settings/"
     ],
     "order": "shallow-first"
   },
@@ -30,13 +31,29 @@
   },
   "extraction": {
     "contentRoot": ".Banner-main, main#Main",
-    "anchorSelector": "[id^=\"block-\"]",
+    "anchors": [
+      {
+        "selector": "[id^=\"block-\"]"
+      },
+      {
+        "selector": "[data-item-id]",
+        "attribute": "data-item-id",
+        "pattern": "(\\d+)$"
+      },
+      {
+        "selector": "[id^=\"itm\"]",
+        "attribute": "id",
+        "pattern": "(\\d+)$"
+      }
+    ],
     "extraNoiseSelectors": [
       ".Modal",
       ".TeaserSlider-nav",
       ".NewsListBlock-wrapper",
       "[id^=\"block-\"]:has(.NewsListBlock-wrapper)",
-      ".EventList-wrapper"
+      ".EventList-wrapper",
+      ".ColorTeaser",
+      ".ProductList-text"
     ],
     "checkHtmlLang": true
   },

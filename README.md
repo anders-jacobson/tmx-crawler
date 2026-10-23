@@ -74,9 +74,12 @@ npm packages and Actions up to date.
    Collapsed accordion/tab panels are kept.
 5. **Alignment** – a source block is paired only with the target block at the **same layout
    position within the same CMS block**:
-   - with `anchorSelector` (e.g. `[id^="block-"]` on Optimizely/EPiServer sites, whose block ids are
-     identical in every language) pairing is block-to-block, so re-ordered blocks and blocks that
-     exist on only one language version cannot cause wrong pairs
+   - with `anchors` – elements whose identifier is the same in every language – pairing happens
+     inside the innermost anchor: CMS blocks (`[id^="block-"]` on Optimizely/EPiServer) and list
+     items such as product cards (`data-item-id="pulsiocare-1851545"`, where a `pattern` extracts
+     the language-independent content id `1851545`). Re-ordered blocks, products listed in a
+     different order, and blocks or products that exist on only one language version therefore
+     cannot cause wrong pairs
    - `strict` (default): same tag path *and* same number of same-tag siblings at every level within
      the block, so an extra paragraph can never shift later segments into wrong pairs
    - `path`: same tag path only (more recall, less safe) · `sequence`: n-th ↔ n-th, equal counts only
@@ -113,7 +116,7 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 | `http.delayMs` / `concurrency` | `500` / `2` | Politeness settings |
 | `http.respectRobotsTxt` | `true` | Disable only for sites you operate (`--no-robots`) |
 | `extraction.contentRoot` | `main, [role="main"]` | Where translatable copy lives; all outermost matches are used |
-| `extraction.anchorSelector` | `null` | CMS blocks whose id is shared across languages, e.g. `[id^="block-"]` |
+| `extraction.anchors` | `null` | `[{ selector, attribute?, pattern? }]` – elements whose id is shared across languages; `pattern`'s first capture group is the id (see `tmx.config.json`) |
 | `extraction.extraNoiseSelectors` | `[]` | Site-specific selectors to strip, added to the built-in list |
 | `alignment.mode` | `strict` | `strict`, `path` or `sequence` |
 | `alignment.minWords` / `maxWords` | `4` / `80` | Segment length filter |
@@ -127,9 +130,14 @@ Defaults ← `tmx.config.json` ← CLI flags. The most important settings:
 The full default set is in [`src/config.js`](src/config.js).
 
 **Getinge (`tmx.config.json`)** uses `.Banner-main, main#Main` as content roots (the hero banner
-sits outside `<main>`), `[id^="block-"]` as anchors, and strips the news list, event list, teaser
-slider navigation and modal dialogs. Market-specific pages such as the homepage share only some
-blocks with `/int/`; anything that is not the same block in both languages is ignored.
+sits outside `<main>`) and three anchor types: CMS blocks (`block-…`), product cards
+(`data-item-id`) and solution-list items (`itm…_<id>`). It strips the news list, event list, teaser
+slider navigation and modal dialogs, plus two things measured to cause wrong pairs on real pages:
+related-article teaser cards (`.ColorTeaser`; their text is aligned from the article pages
+themselves) and the short product-card descriptions (`.ProductList-text`), which market teams often
+rewrite instead of translating. `/company/`, `/news/` and CMS `/settings/` pages are excluded.
+Market-specific pages such as the homepage share only some blocks with `/int/`; anything that is
+not the same block in both languages is ignored.
 
 **Tuning tip:** start with `--max-pages 20`, open the report, and look at
 `no-structural-match` counts. If the two language variants differ structurally on many pages,
