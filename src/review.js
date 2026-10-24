@@ -215,6 +215,9 @@ const COLUMNS = [
   { header: 'Check', width: 30 },
   { header: 'German page', width: 28 },
 ];
+// Added only when a row carries a note (e.g. a pre-reviewed sheet); readers ignore unknown columns.
+const NOTE_COLUMN = { header: 'Review note', width: 50 };
+const columnsFor = (rows) => (rows.some((row) => row.note) ? [...COLUMNS, NOTE_COLUMN] : COLUMNS);
 
 const STYLE = { normal: 0, header: 1, wrap: 2, link: 3, input: 4 };
 
@@ -255,22 +258,24 @@ function shortPath(url, base) {
 }
 
 function reviewSheetXml(rows, { sourceBase, targetBase }) {
-  const header = `<row r="1">${COLUMNS.map((c, i) => textCell(`${columnLetter(i)}1`, c.header, STYLE.header)).join('')}</row>`;
+  const columns = columnsFor(rows);
+  const header = `<row r="1">${columns.map((c, i) => textCell(`${columnLetter(i)}1`, c.header, STYLE.header)).join('')}</row>`;
   const body = rows.map((row, n) => {
     const r = n + 2;
     const cells = [
-      numberCell(`A${r}`, n + 1, STYLE.normal),
+      numberCell(`A${r}`, row.no ?? n + 1, STYLE.normal),
       linkCell(`B${r}`, row.sourceUrl, shortPath(row.sourceUrl, sourceBase)),
       textCell(`C${r}`, row.source, STYLE.wrap),
       textCell(`D${r}`, row.suggestion, STYLE.wrap),
       textCell(`E${r}`, row.confidence, STYLE.normal),
-      textCell(`F${r}`, '', STYLE.input),
+      textCell(`F${r}`, row.decision ?? '', STYLE.input),
       textCell(`G${r}`, row.alternatives[0], STYLE.wrap),
       textCell(`H${r}`, row.alternatives[1], STYLE.wrap),
       textCell(`I${r}`, row.alternatives[2], STYLE.wrap),
-      textCell(`J${r}`, '', STYLE.input),
+      textCell(`J${r}`, row.yourGerman ?? '', STYLE.input),
       textCell(`K${r}`, row.check, STYLE.wrap),
       linkCell(`L${r}`, row.targetUrl, shortPath(row.targetUrl, targetBase)),
+      columns.length > COLUMNS.length ? textCell(`M${r}`, row.note, STYLE.wrap) : '',
     ];
     return `<row r="${r}">${cells.join('')}</row>`;
   }).join('');
@@ -280,9 +285,9 @@ function reviewSheetXml(rows, { sourceBase, targetBase }) {
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
     + '<sheetFormatPr defaultRowHeight="15"/>'
-    + `<cols>${COLUMNS.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width}" customWidth="1"/>`).join('')}</cols>`
+    + `<cols>${columns.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.width}" customWidth="1"/>`).join('')}</cols>`
     + `<sheetData>${header}${body}</sheetData>`
-    + `<autoFilter ref="A1:${columnLetter(COLUMNS.length - 1)}${last}"/>`
+    + `<autoFilter ref="A1:${columnLetter(columns.length - 1)}${last}"/>`
     + `<dataValidations count="1"><dataValidation type="list" allowBlank="1" showErrorMessage="1" errorTitle="Decision" error="Choose a value from the list." sqref="F2:F${Math.max(last, 2)}"><formula1>"${escapeXml(list)}"</formula1></dataValidation></dataValidations>`
     + '</worksheet>';
 }
@@ -307,8 +312,15 @@ const INSTRUCTIONS = [
   '"Check" shows why an automatic check would have rejected the suggestion (e.g. differing numbers) – it is a hint, not a verdict.',
 ];
 
-function instructionsSheetXml() {
-  const rows = INSTRUCTIONS.map((line, i) => `<row r="${i + 1}">${textCell(`A${i + 1}`, line, i === 0 ? STYLE.header : STYLE.normal)}</row>`).join('');
+const PREFILLED_INSTRUCTIONS = [
+  '',
+  'This sheet was pre-checked: most rows already have a Decision, and "Review note" explains the less obvious ones.',
+  'Rows with an empty Decision come first and need your judgement; pre-filled decisions can be changed like any other.',
+];
+
+function instructionsSheetXml(prefilled = false) {
+  const lines = prefilled ? [...INSTRUCTIONS, ...PREFILLED_INSTRUCTIONS] : INSTRUCTIONS;
+  const rows = lines.map((line, i) => `<row r="${i + 1}">${textCell(`A${i + 1}`, line, i === 0 ? STYLE.header : STYLE.normal)}</row>`).join('');
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
     + '<cols><col min="1" max="1" width="140" customWidth="1"/></cols>'
@@ -337,7 +349,9 @@ const STYLES_XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
  * Writes the review workbook (written to *.partial, then renamed).
  * @param {string} path
  * @param {{ sourceUrl: string, targetUrl: string, source: string, suggestion: string|null,
- *           confidence: string, alternatives: string[], check: string|null }[]} rows
+ *           confidence: string, alternatives: string[], check: string|null,
+ *           no?: number, decision?: string, yourGerman?: string, note?: string }[]} rows
+ *   `no`, `decision`, `yourGerman` and `note` pre-fill a sheet (e.g. after a first review pass).
  */
 export async function writeReviewWorkbook(path, rows, { sourceBase = '', targetBase = '', title = 'TMX review', now = new Date() } = {}) {
   const xml = (body) => strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n${body}`);
@@ -366,7 +380,7 @@ export async function writeReviewWorkbook(path, rows, { sourceBase = '', targetB
     'xl/workbook.xml': xml('<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
       + '<bookViews><workbookView/></bookViews>'
       + '<sheets><sheet name="Review" sheetId="1" r:id="rId1"/><sheet name="How to review" sheetId="2" r:id="rId2"/></sheets>'
-      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Review!$A$1:$${columnLetter(COLUMNS.length - 1)}$${rows.length + 1}</definedName></definedNames>`
+      + `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">Review!$A$1:$${columnLetter(columnsFor(rows).length - 1)}$${rows.length + 1}</definedName></definedNames>`
       + '</workbook>'),
     'xl/_rels/workbook.xml.rels': xml('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
       + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
@@ -375,7 +389,7 @@ export async function writeReviewWorkbook(path, rows, { sourceBase = '', targetB
       + '</Relationships>'),
     'xl/styles.xml': strToU8(STYLES_XML),
     'xl/worksheets/sheet1.xml': strToU8(reviewSheetXml(rows, { sourceBase, targetBase })),
-    'xl/worksheets/sheet2.xml': strToU8(instructionsSheetXml()),
+    'xl/worksheets/sheet2.xml': strToU8(instructionsSheetXml(rows.some((row) => row.decision || row.note))),
   };
   const zipped = zipSync(files, { level: 6, mtime: now });
   await mkdir(dirname(path), { recursive: true });

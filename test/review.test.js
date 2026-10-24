@@ -128,6 +128,31 @@ test('review workbook round trip: decisions become approved pairs', async () => 
   assert.deepEqual((await readReviewFolder(join(dir, 'missing'))).files, [], 'missing folder = nothing reviewed');
 });
 
+test('review workbook can be written pre-filled, in any order, with notes', async () => {
+  const dir = await tempDir('tmx-review-');
+  const file = join(dir, 'prefilled.review.xlsx');
+  const base = { sourceUrl: 'https://x.test/int/a/', targetUrl: 'https://x.test/de/a/', confidence: 'Medium', check: null };
+  await writeReviewWorkbook(file, [
+    { ...base, no: 7, source: 'Open question', suggestion: 'Offene Frage', alternatives: [], yourGerman: 'Vorschlag', note: 'check the numbers' },
+    { ...base, no: 2, source: 'Joined text', suggestion: 'Teil eins', alternatives: ['Teil zwei'], decision: DECISIONS.own, yourGerman: 'Teil eins Teil zwei', note: 'two German paragraphs joined' },
+    { ...base, no: 5, source: 'Plain', suggestion: 'Schlicht', alternatives: [], decision: DECISIONS.accept },
+    { ...base, no: 9, source: 'Nothing', suggestion: null, alternatives: ['Etwas anderes'], decision: DECISIONS.reject },
+  ], { sourceBase: 'https://x.test/int/', targetBase: 'https://x.test/de/' });
+
+  const rows = readReviewRows(await readFile(file));
+  assert.deepEqual(rows.map((r) => r['No.'].value), ['7', '2', '5', '9']);
+  assert.equal(rows[0]['Review note'].value, 'check the numbers');
+  assert.equal(rows[0].Decision.value, '', 'an open question stays undecided');
+  const decisions = decisionsFromRows(rows);
+  assert.deepEqual(decisions.approved.map((p) => [p.source, p.target]), [
+    ['Joined text', 'Teil eins Teil zwei'],
+    ['Plain', 'Schlicht'],
+  ]);
+  assert.equal(decisions.rejected, 1);
+  assert.deepEqual(decisions.invalid, []);
+  assert.ok(!decisions.decided.has('Open question'));
+});
+
 test('end to end: rewritten page → review sheet → approved pair in the TMX', async () => {
   const site = await startMockSite();
   try {
